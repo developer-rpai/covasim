@@ -32,7 +32,7 @@ dependencies = [
     "numpy",
     "numba",
     "pandas",
-    "scipy<1.16.0",
+    "scipy",
     "statsmodels",
     "matplotlib",
     "sciris>=2.0.4",

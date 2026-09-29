@@ -11,7 +11,6 @@ import pylab as pl
 import sciris as sc
 import collections as co
 from pathlib import Path
-from distutils.version import LooseVersion
 from . import version as cvv
 from .settings import options as cvo
 
@@ -604,7 +603,7 @@ def get_version_pars(version, verbose=True):
     # Construct a sorted list of available parameters based on the files in the regression folder
     regression_folder = sc.thisdir(__file__, 'regression', aspath=True)
     available_versions = [x.stem.replace('pars_v','') for x in regression_folder.iterdir() if x.suffix=='.json']
-    available_versions = sorted(available_versions, key=LooseVersion)
+    available_versions = sorted(available_versions, key=lambda v: tuple(int(part) for part in v.split('.'))) # e.g. '3.1.2' -> (3,1,2), so versions sort numerically
 
     # Find the highest parameter version that is <= the requested version
     version_comparison = [sc.compareversions(version, v)>=0 for v in available_versions]
