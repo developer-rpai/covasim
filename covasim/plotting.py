@@ -652,7 +652,7 @@ def plot_people(people, bins=None, width=1.0, alpha=0.6, fig_args=None, axis_arg
                     title = f'Total contacts for layer "{lk}": {total_contacts:n}\n({participation*100:.0f}% participation)'
                 elif w_type == 'percapita':
                     age_counts_within_layer = np.histogram(people.age[members_lk], edges)[0]
-                    weight = np.divide(1.0, age_counts_within_layer, where=age_counts_within_layer>0)
+                    weight = sc.safedivide(1.0, age_counts_within_layer) # Set the weight to zero for ages with no contacts
                     mean_contacts_within_layer = 2*n_contacts/n_members if n_members else 0  # Factor of 2 since edges are bi-directional
                     ylabel = 'Per capita number of contacts'
                     title = f'Mean contacts for layer "{lk}": {mean_contacts_within_layer:0.2f}'

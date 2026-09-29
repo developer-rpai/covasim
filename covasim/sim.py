@@ -1423,10 +1423,10 @@ def diff_sims(sim1, sim2, skip_key_diffs=False, skip=None, output=False, die=Fal
             if numeric and old>0:
                 this_diff  = new - old
                 this_ratio = new/old
-                abs_ratio  = max(this_ratio, 1.0/this_ratio)
+                abs_ratio  = max(this_ratio, sc.safedivide(1.0, this_ratio, default=np.inf)) # Ratio of the larger value to the smaller one, so always ≥1
 
                 # Set the character to use
-                if abs_ratio<small_change:
+                if abs_ratio < 1+small_change:
                     change_char = '≈'
                 elif new > old:
                     change_char = '↑'
