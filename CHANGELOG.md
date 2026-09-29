@@ -8,11 +8,11 @@ Covasim is currently being ported to [Starsim](https://starsim.org), but otherwi
 
 ## Latest versions (3.1.x)
 
-### Version 3.1.9 (2026-09-28)
+### Version 3.1.9 (2026-09-29)
 
+- Added compatibility with Python 3.14 by removing outdated SciPy pin.
 - Fixed `cv.diff_sims()` never marking values as `≈`: changes within 0.1% are now shown as approximately equal.
-- Added compatibility with Python 3.14.
-- *GitHub info*: PR [443](https://github.com/starsimhub/covasim/pull/443)
+- *GitHub info*: PR [463](https://github.com/starsimhub/covasim/pull/463)
 
 ### Version 3.1.8 (2026-05-29)
 
