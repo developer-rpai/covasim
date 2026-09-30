@@ -1,8 +1,9 @@
-"""M0 anchor scenario for the v3.1.8 -> v4.0 migration regression harness.
+"""Vanilla anchor scenario for the v3.1.8 -> v4.0 migration regression harness.
 
 Representative-but-clean vanilla Covasim sim: hybrid population, waning immunity
 ON, no interventions, no analyzers. This isolates core-dynamics + immunity drift
-from intervention-port bugs. Intervention/vaccine anchors are added in M5/M6.
+from intervention-port bugs. Intervention/vaccine anchors are in anchor_testing.py
+and anchor_vaccination.py.
 
 Pinned anchor pars. Do NOT change without coordinating with the gitignored
 v3.1.8 baselines (regenerate them via multi_seed_v3.py if you do).
@@ -33,13 +34,13 @@ PARS = dict(
 
 
 def make_sim(**kwargs):
-    """Build (but do not run) the M0 anchor sim. kwargs override PARS (e.g. rand_seed)."""
+    """Build (but do not run) the vanilla anchor sim. kwargs override PARS (e.g. rand_seed)."""
     pars = sc.mergedicts(sc.dcp(PARS), kwargs)
     return cv.Sim(pars)
 
 
 def run_and_summarize(**kwargs):
-    """Run the M0 anchor sim and return the short summary dict."""
+    """Run the vanilla anchor sim and return the short summary dict."""
     sim = make_sim(**kwargs)
     sim.run()
     return build_summary(sim)
@@ -47,6 +48,6 @@ def run_and_summarize(**kwargs):
 
 if __name__ == '__main__':
     short = run_and_summarize()
-    print('M0 anchor short summary (vanilla hybrid, waning ON):')
+    print('Vanilla anchor short summary (vanilla hybrid, waning ON):')
     for k, v in short.items():
         print(f'  {k:<24} {v:>14.4g}')

@@ -15,7 +15,7 @@ def _ages_of_vaccinated(sim):
 def test_vaccinate_prob_subtarget_by_age():
     """vaccinate_prob with a subtarget vaccinates only the targeted (over-65) agents."""
     def over65(sim):
-        return dict(inds=cv.true(np.asarray(sim.people.age) >= 65), vals=0.9)
+        return dict(inds=cv.true(sim.people.age >= 65), vals=0.9)
     sim = cv.Sim(pop_size=8000, pop_infected=80, pop_type='hybrid', n_days=40, rand_seed=1,
                  use_waning=True, verbose=0,
                  interventions=cv.vaccinate_prob('pfizer', days=20, prob=0.0, subtarget=over65))
@@ -27,7 +27,7 @@ def test_vaccinate_prob_subtarget_by_age():
 def test_vaccinate_num_subtarget_filter():
     """vaccinate_num subtarget with vals=0 excludes those agents (the booster-targeting pattern)."""
     def exclude_young(sim):
-        return dict(inds=cv.true(np.asarray(sim.people.age) < 65), vals=0)
+        return dict(inds=cv.true(sim.people.age < 65), vals=0)
     sim = cv.Sim(pop_size=8000, pop_infected=80, pop_type='hybrid', n_days=40, rand_seed=1,
                  use_waning=True, verbose=0,
                  interventions=cv.vaccinate_num('pfizer', num_doses=300, subtarget=exclude_young))
@@ -133,7 +133,7 @@ def test_people_state_proxy_writethrough():
     """A custom-function intervention can write sim.people.rel_sus (write-through to the disease)."""
     def protect_elderly(sim):
         if sim.ti == sim.day('2020-04-01'):
-            sim.people.rel_sus[cv.true(np.asarray(sim.people.age) > 70)] = 0.0
+            sim.people.rel_sus[cv.true(sim.people.age > 70)] = 0.0
     base = cv.Sim(pop_size=8000, pop_infected=80, pop_type='hybrid', start_day='2020-03-01',
                   n_days=80, rand_seed=1, verbose=0); base.run()
     prot = cv.Sim(pop_size=8000, pop_infected=80, pop_type='hybrid', start_day='2020-03-01',
@@ -143,20 +143,14 @@ def test_people_state_proxy_writethrough():
     assert pd < bd, 'protecting the elderly (via the people.rel_sus proxy) should reduce deaths'
 
 
-def test_sim_attr_proxy():
-    """v3-style sim.<par> / sim['par'] reads resolve to the config / COVID pars, without shadowing."""
+def test_sim_getitem():
+    """v3-style sim['par'] reads resolve to the sim and COVID pars."""
     sim = cv.Sim(pop_size=3000, pop_infected=30, pop_type='hybrid', start_day='2020-03-01', n_days=15,
                  verbose=0)
     sim.run()
-    assert abs(sim.beta - 0.016) < 1e-9 and sim.start_day == '2020-03-01' and sim.n_days == 15
-    assert sim['beta'] == sim.beta              # ss.Sim.__getitem__ delegates to getattr
+    assert abs(sim['beta'] - 0.016) < 1e-9 and sim['start_day'] == '2020-03-01' and sim['n_days'] == 15
     assert sim['rel_death_prob'] == 1.0         # a COVID parameter
-    assert hasattr(sim, 'results') and hasattr(sim, 'diseases')  # real attrs unaffected
-    try:
-        _ = sim.definitely_missing
-        assert False
-    except AttributeError:
-        pass
+    assert sim['beta_layer']['h'] == 3.0        # a per-layer parameter
 
 
 def test_nab_decay_custom_params_routed():

@@ -1,6 +1,6 @@
 """Functional + structural tests for cv.COVID.
 
-M1 covered the minimal S->E->I->R; M2 adds the full prognosis tree (symptomatic ->
+Covers S->E->I->R transmission and the full prognosis tree (symptomatic ->
 severe -> critical -> dead, with recovery off each stage). The natural-history
 *structural invariants* are tested by calling set_prognoses directly and inspecting
 the pre-scheduled timers (removal-free: dead agents are removed from the live arrays
@@ -62,7 +62,7 @@ def test_exposed_do_not_transmit():
 
 
 def test_full_progression_occurs():
-    """A run produces symptomatic, severe and critical agents (the new M2 stages)."""
+    """A run produces symptomatic, severe and critical agents."""
     sim = cv.Sim(pop_size=20_000, pop_infected=50, pop_type='random', n_days=120, rand_seed=1)
     sim.run()
     d = sim.diseases.covid
@@ -86,7 +86,7 @@ def test_permanent_immunity():
     recovered = _arr(covid.recovered)
     susceptible = _arr(covid.susceptible)
     assert recovered.sum() > 0
-    assert not (recovered & susceptible).any(), 'recovered agents must not be susceptible (no waning in M2)'
+    assert not (recovered & susceptible).any(), 'recovered agents must not be susceptible (no waning)'
 
 
 def test_deterministic_same_seed():

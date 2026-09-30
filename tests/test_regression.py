@@ -57,38 +57,6 @@ def test_regression():
     return sim1, sim2
 
 
-@pytest.mark.skip(reason='Retired in v4.0: depends on the v1.7.0 example_regression.sim pickle + the '
-                         'v3 cv.migrate object-versioning path, both obsolete under the Starsim model.')
-def test_migration():
-    sc.heading('Testing migration...')
-
-    # Create sim and people
-    base = make_sim()
-    base.people.version = version
-    sim = cv.load(filename)
-    sim.people = base.people
-
-    # Create msim
-    msim = cv.MultiSim(base_sim=sim)
-    del msim.version # To simulate <2.0.0
-    msim.init_sims()
-
-    # Create scenarios
-    scens = cv.Scenarios(sim=sim)
-    del scens.version # To simulate <2.0.0
-
-    # Try migrations
-    new_sim = cv.migrate(sim, die=True)
-    new_msim = cv.migrate(msim, die=True)
-    new_scens = cv.migrate(scens, die=True)
-
-    # Try something un-migratable
-    with pytest.raises(TypeError):
-        cv.migrate('Strings are not migratable', die=True)
-
-    return new_sim, new_msim, new_scens
-
-
 #%% Run as a script
 if __name__ == '__main__':
 
@@ -96,7 +64,6 @@ if __name__ == '__main__':
     T = sc.tic()
 
     sim1, sim2 = test_regression()
-    sim, msim, scens = test_migration()
 
     sc.toc(T)
     print('Done.')

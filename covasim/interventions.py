@@ -1,8 +1,8 @@
 """
 Interventions for Covasim on the Starsim base.
 
-``cv.Intervention(ss.Intervention)`` is the base (same public name as v3). M5 restores the testing
-interventions ``cv.test_num`` / ``cv.test_prob`` and ``cv.contact_tracing`` as ``ss.Intervention``
+``cv.Intervention(ss.Intervention)`` is the base (same public name as v3). The testing
+interventions ``cv.test_num`` / ``cv.test_prob`` and ``cv.contact_tracing`` are ``ss.Intervention``
 subclasses. They run at the intervention loop slot (after the cross-immunity connector, before
 transmission); the testing ones select agents and call the ``cv.COVID.test()`` action (which schedules
 diagnoses and drives the diagnosis/isolation/quarantine state machines in ``cv.COVID.step_state``),
@@ -11,10 +11,44 @@ and ``contact_tracing`` traces the newly-diagnosed agents' network contacts and 
 The selection draws use ``ss.bernoulli`` (CRN), replacing v3's global-RNG ``cvu.binomial``.
 """
 import numpy as np
+import pandas as pd
 import sciris as sc
 import starsim as ss
 
-__all__ = ['Intervention', 'test_num', 'test_prob', 'contact_tracing']
+from . import compat as cvc
+from . import utils as cvu
+from . import parameters as cvpar
+from . import immunity as cvimm
+
+__all__ = ['InterventionDict', 'Intervention', 'test_num', 'test_prob', 'contact_tracing']
+
+
+def InterventionDict(which, pars):
+    '''
+    Generate an intervention from a dictionary. Although a function, it acts
+    like a class, since it returns a class instance.
+
+    **Example**::
+
+        interv = cv.InterventionDict(which='change_beta', pars={'days': 30, 'changes': 0.5, 'layers': None})
+    '''
+    mapping = dict(
+        dynamic_pars    = dynamic_pars,
+        sequence        = sequence,
+        change_beta     = change_beta,
+        clip_edges      = clip_edges,
+        test_num        = test_num,
+        test_prob       = test_prob,
+        contact_tracing = contact_tracing,
+    )
+    try:
+        IntervClass = mapping[which]
+    except KeyError as E:
+        available = ', '.join(mapping.keys())
+        errormsg = f'Only interventions "{available}" are available in dictionary representation, not "{which}"'
+        raise sc.KeyNotFoundError(errormsg) from E
+    intervention = IntervClass(**pars)
+    return intervention
 
 
 def _find_contacts(net, trace_uids):
@@ -31,19 +65,8 @@ def _find_contacts(net, trace_uids):
     return ss.uids(contacts)
 
 
-class Intervention(ss.Intervention):
+class Intervention(cvc.V3Module, ss.Intervention):
     """Base class for Covasim interventions (same public name as v3; thin over ``ss.Intervention``)."""
-
-    # v3 cosmetic/plotting kwargs that the Starsim engine does not use; accepted and ignored for
-    # backwards compatibility. (Functional kwargs like ``subtarget`` are NOT swallowed -- silently
-    # dropping them would change results, so they remain errors until ported.)
-    _V3_COSMETIC = ('do_plot', 'show_label', 'line_args')
-
-    def __init__(self, *args, **kwargs):
-        for key in self._V3_COSMETIC:
-            kwargs.pop(key, None)
-        super().__init__(*args, **kwargs)
-        return
 
     def init_post(self):
         super().init_post()
@@ -67,7 +90,102 @@ class Intervention(ss.Intervention):
         return True
 
 
-class test_prob(Intervention):
+def get_quar_inds(quar_policy, sim):
+    """
+    Return the UIDs of people in quarantine who should be tested, based on the quarantine
+    testing policy (the v3 ``get_quar_inds``). Used by test_num and test_prob.
+
+    Args:
+        quar_policy (str, int, list, func): 'start', people entering quarantine; 'end', people leaving; 'both', entering and leaving; 'daily', every day in quarantine; a number or list of numbers, the days after the start of quarantine to test; or a function ``quar_policy(sim)`` that returns the UIDs
+        sim (Sim): the simulation object
+    """
+    covid = sim.diseases.covid
+    t = sim.ti
+    if   quar_policy is None:    quar_test_inds = np.array([], dtype=int)
+    elif quar_policy == 'start': quar_test_inds = (covid.date_quarantined == t-1).uids # Actually do the day after since testing usually happens before contact tracing
+    elif quar_policy == 'end':   quar_test_inds = (covid.date_end_quarantine == t+1).uids # +1 since they are released on date_end_quarantine, so do the day before
+    elif quar_policy == 'both':  quar_test_inds = np.concatenate([(covid.date_quarantined == t-1).uids, (covid.date_end_quarantine == t+1).uids])
+    elif quar_policy == 'daily': quar_test_inds = covid.quarantined.uids
+    elif sc.isnumber(quar_policy) or (sc.isiterable(quar_policy) and not sc.isstring(quar_policy)):
+        quar_test_inds = np.unique(np.concatenate([(covid.date_quarantined == t-1-q).uids for q in sc.toarray(quar_policy)]))
+    elif callable(quar_policy):
+        quar_test_inds = quar_policy(sim)
+    else:
+        errormsg = f'Quarantine policy "{quar_policy}" not recognized: must be a string (start, end, both, daily), int, list, array, set, tuple, or function'
+        raise ValueError(errormsg)
+    return np.asarray(quar_test_inds, dtype=int)
+
+
+def process_daily_data(daily_data, sim, start_day, as_int=False):
+    """
+    Convert daily data (e.g. the number of tests) to an array indexed by the days since the
+    intervention started (the v3 ``process_daily_data``).
+
+    Args:
+        daily_data (str, number, array, dataframe, or series): if a number, convert to an array of the right length; if a Pandas series or dataframe with a date index, reindex to match the start day; if a string, use that column of the sim's data ('data' means 'new_tests')
+        sim (Sim): the simulation object
+        start_day (int): the first day of the intervention
+        as_int (bool): whether to convert a number to an integer
+    """
+    if sc.isstring(daily_data):
+        key = 'new_tests' if daily_data == 'data' else daily_data
+        try:
+            daily_data = sim.data[key]
+        except Exception as E:
+            errormsg = f'Tried to load testing data from sim.data["{key}"], but that failed: {str(E)}.\nPlease ensure data are loaded into the sim and the column exists.'
+            raise ValueError(errormsg) from E
+
+    if sc.isnumber(daily_data):
+        if as_int: daily_data = int(daily_data)
+        daily_data = np.array([daily_data] * sim.npts)
+    elif isinstance(daily_data, (pd.Series, pd.DataFrame)):
+        start_date = sc.datedelta(sim['start_day'], days=start_day)
+        end_date = daily_data.index[-1]
+        dateindex = pd.date_range(start_date, end_date)
+        daily_data = daily_data.reindex(dateindex, fill_value=0).to_numpy()
+    return daily_data
+
+
+class BaseTest(Intervention):
+    """Shared logic for test_num and test_prob: quarantine policy, influenza-like illness, and swab delay (v3)."""
+
+    def _init_testing(self, quar_policy, subtarget, ili_prev, swab_delay):
+        self.quar_policy = quar_policy if quar_policy else 'start'
+        self.subtarget   = subtarget
+        self.ili_prev    = ili_prev
+        self.pdf         = cvu.get_pdf(**sc.mergedicts(swab_delay)) # If provided, get the distribution's pdf -- this returns an empty dict if None is supplied
+        return
+
+    def init_post(self):
+        super().init_post()
+        self.ili_prev = process_daily_data(self.ili_prev, self.sim, self.start_day)
+        return
+
+    def _symp_time(self, symp_inds):
+        """Days since symptom onset, for the swab delay"""
+        return (self.ti - np.asarray(self._covid().ti_symptomatic[symp_inds])).astype(int)
+
+    def _ili_inds(self, symp_inds):
+        """Choose people with influenza-like illness (independent of COVID symptoms) on this day"""
+        if self.ili_prev is None:
+            return np.array([], dtype=int)
+        rel_t = self.ti - self.start_day
+        if rel_t >= len(self.ili_prev):
+            return np.array([], dtype=int)
+        alive = np.asarray(self.sim.people.auids)
+        n_ili = min(int(self.ili_prev[rel_t] * len(alive)), len(alive)) # Number with ILI symptoms on this day
+        rng = np.random.default_rng([self._seed(), 91, self.ti])
+        ili_inds = rng.choice(alive, size=n_ili, replace=False)
+        return np.setdiff1d(ili_inds, symp_inds)
+
+    def _seed(self):
+        try:
+            return int(self.sim.pars.rand_seed)
+        except Exception:
+            return 0
+
+
+class test_prob(BaseTest):
     """
     Test each person with a per-day probability that depends on their symptom + quarantine state
     (the v3 ``cv.test_prob``). The number of tests is an output, not an input.
@@ -77,15 +195,19 @@ class test_prob(Intervention):
         asymp_prob (float): daily probability of testing an asymptomatic, un-quarantined person.
         symp_quar_prob (float): testing probability for symptomatic quarantined people (default symp_prob).
         asymp_quar_prob (float): testing probability for asymptomatic quarantined people (default asymp_prob).
+        quar_policy (str): policy for testing in quarantine: options are 'start' (default), 'end', 'both' (start and end), 'daily'; can also be a number or a function, see get_quar_inds()
+        subtarget (dict): subtarget intervention to people with particular indices (see get_subtargets())
+        ili_prev (float/arr): prevalence of influenza-like-illness symptoms in the population; can be float, array, or dataframe/series
         sensitivity (float): test sensitivity (true-positive rate).
         loss_prob (float): probability of loss-to-follow-up (never diagnosed).
         test_delay (int): days from test to diagnosis.
         start_day (int): first day the intervention is active.
         end_day (int): last day the intervention is active (None = no end).
+        swab_delay (dict): distribution for the delay from onset to swab; if this is present, it is used instead of test_delay
     """
 
-    def __init__(self, symp_prob, asymp_prob=0.0, symp_quar_prob=None, asymp_quar_prob=None,
-                 sensitivity=1.0, loss_prob=0.0, test_delay=0, start_day=0, end_day=None, **kwargs):
+    def __init__(self, symp_prob, asymp_prob=0.0, symp_quar_prob=None, asymp_quar_prob=None, quar_policy=None, subtarget=None, ili_prev=None,
+                 sensitivity=1.0, loss_prob=0.0, test_delay=0, start_day=0, end_day=None, swab_delay=None, **kwargs):
         super().__init__(**kwargs)
         self.symp_prob       = symp_prob
         self.asymp_prob      = asymp_prob
@@ -96,24 +218,50 @@ class test_prob(Intervention):
         self.test_delay      = test_delay
         self.start_day       = start_day
         self.end_day         = end_day
+        self._init_testing(quar_policy, subtarget, ili_prev, swab_delay)
         self._select = ss.bernoulli(p=0.0)  # per-agent test-probability draw (CRN)
         return
 
     def step(self):
-        ti = self.ti
-        if not self._active(ti):
+        if not self._active(self.ti):
             return
         covid = self._covid()
         alive = self.sim.people.auids
-        symp = np.asarray(covid.symptomatic[alive])
-        quar = np.asarray(covid.quarantined[alive])
-        diag = np.asarray(covid.diagnosed[alive])
-        # Per-agent daily test probability by (symptomatic, quarantined) state; diagnosed aren't retested.
-        p = np.where(symp,
-                     np.where(quar, self.symp_quar_prob, self.symp_prob),
-                     np.where(quar, self.asymp_quar_prob, self.asymp_prob)).astype(float)
-        p[diag] = 0.0
-        self._select.set(p=p)
+
+        # Find probability of testing for symptomatic people, optionally with a swab delay
+        symp_inds = covid.symptomatic.uids
+        symp_prob = self.symp_prob
+        if self.pdf:
+            symp_time = self._symp_time(symp_inds)
+            inv_count = (np.bincount(symp_time)/len(symp_time)) # Find how many people have had symptoms of a set time and invert
+            count = np.nan * np.ones(inv_count.shape)
+            count[inv_count != 0] = 1/inv_count[inv_count != 0]
+            symp_prob = np.ones(len(symp_time))
+            inds = 1 > (symp_time*self.symp_prob)
+            symp_prob[inds] = self.symp_prob/(1-symp_time[inds]*self.symp_prob)
+            symp_prob = self.pdf.pdf(symp_time) * symp_prob * count[symp_time]
+
+        # Define the groups of people
+        ili_inds        = self._ili_inds(symp_inds)
+        asymp_inds      = np.setdiff1d(np.setdiff1d(alive, symp_inds), ili_inds)
+        quar_test_inds  = get_quar_inds(self.quar_policy, self.sim)
+        symp_quar_inds  = np.intersect1d(quar_test_inds, symp_inds)
+        asymp_quar_inds = np.intersect1d(quar_test_inds, asymp_inds)
+
+        # Assign testing probabilities by UID
+        test_probs = np.zeros(len(covid.symptomatic.raw))
+        test_probs[symp_inds]       = symp_prob            # People with symptoms (true positive)
+        test_probs[ili_inds]        = self.symp_prob       # People with symptoms (false positive) -- can't use swab delay since no date symptomatic
+        test_probs[asymp_inds]      = self.asymp_prob      # People without symptoms
+        test_probs[symp_quar_inds]  = self.symp_quar_prob  # People with symptoms in quarantine
+        test_probs[asymp_quar_inds] = self.asymp_quar_prob # People without symptoms in quarantine
+        if self.subtarget is not None:
+            subtarget_inds, subtarget_vals = get_subtargets(self.subtarget, self.sim)
+            test_probs[subtarget_inds] = subtarget_vals # People being explicitly subtargeted
+        test_probs[covid.diagnosed.uids] = 0.0 # People who are diagnosed don't test
+
+        # Test
+        self._select.set(p=test_probs[alive])
         test_uids = alive[self._select.rvs(alive)]
         if len(test_uids):
             covid.test(test_uids, test_sensitivity=self.sensitivity, loss_prob=self.loss_prob,
@@ -121,84 +269,89 @@ class test_prob(Intervention):
         return
 
 
-class test_num(Intervention):
+class test_num(BaseTest):
     """
     Test a fixed number of people per day, preferentially testing the symptomatic (the v3 ``cv.test_num``).
 
     Args:
-        daily_tests (int/array): number of tests available per day (scalar or per-day array).
-        symp_test (float): relative weight for testing symptomatic vs asymptomatic people.
+        daily_tests (int/arr): number of tests per day, can be int, array, or dataframe/series; if integer, use that number every day; if 'data' or another string, use that column from the sim's data
+        symp_test (float): odds ratio of a symptomatic person testing (default: 100x more likely)
+        quar_test (float): probability of a person in quarantine testing (default: no more likely)
+        quar_policy (str): policy for testing in quarantine: options are 'start' (default), 'end', 'both' (start and end), 'daily'; can also be a number or a function, see get_quar_inds()
+        subtarget (dict): subtarget intervention to people with particular indices (see get_subtargets())
+        ili_prev (arr): prevalence of influenza-like-illness symptoms in the population; can be float, array, or dataframe/series
         sensitivity (float): test sensitivity.
         loss_prob (float): probability of loss-to-follow-up.
         test_delay (int): days from test to diagnosis.
         start_day (int): first active day.
         end_day (int): last active day (None = no end).
+        swab_delay (dict): distribution for the delay from onset to swab; if this is present, it is used instead of test_delay
     """
 
-    def __init__(self, daily_tests, symp_test=100.0, sensitivity=1.0, loss_prob=0.0, test_delay=0,
-                 start_day=0, end_day=None, **kwargs):
+    def __init__(self, daily_tests, symp_test=100.0, quar_test=1.0, quar_policy=None, subtarget=None, ili_prev=None,
+                 sensitivity=1.0, loss_prob=0.0, test_delay=0, start_day=0, end_day=None, swab_delay=None, **kwargs):
         super().__init__(**kwargs)
         self.daily_tests = daily_tests
         self.symp_test   = symp_test
+        self.quar_test   = quar_test
         self.sensitivity = sensitivity
         self.loss_prob   = loss_prob
         self.test_delay  = test_delay
         self.start_day   = start_day
         self.end_day     = end_day
+        self._init_testing(quar_policy, subtarget, ili_prev, swab_delay)
         return
 
     def init_post(self):
         super().init_post()
-        # v3 ``cv.test_num('data')`` / ``daily_tests='data'``: pull the per-day test counts from the
-        # sim's loaded data (the 'new_tests' column), aligned by date onto the sim time vector.
-        if isinstance(self.daily_tests, str) and self.daily_tests == 'data':
-            data = getattr(self.sim, 'data', None)
-            cols = list(getattr(data, 'columns', []))
-            if data is None or 'new_tests' not in cols:
-                raise ValueError("test_num(daily_tests='data') needs sim data with a 'new_tests' "
-                                 "column; pass cv.Sim(datafile=...).")
-            npts = self.sim.t.npts
-            arr = np.zeros(npts)
-            for idx, val in data['new_tests'].items():
-                di = self.sim.day(str(getattr(idx, 'date', lambda: idx)()))
-                if isinstance(di, list):
-                    di = di[0]
-                if 0 <= di < npts and np.isfinite(val):
-                    arr[int(di)] = val
-            self.daily_tests = arr
+        self.daily_tests = process_daily_data(self.daily_tests, self.sim, self.start_day)
         return
-
-    def _n_tests(self, ti):
-        """Number of tests available on day ``ti`` (scalar, or indexed from a per-day array)."""
-        dt = self.daily_tests
-        if np.isscalar(dt):
-            return int(dt)
-        arr = np.asarray(dt)
-        return int(arr[ti]) if ti < len(arr) else 0
 
     def step(self):
         ti = self.ti
         if not self._active(ti):
             return
-        n_tests = self._n_tests(ti)
-        if n_tests <= 0:
+
+        # Check that there are tests today, correcting for the population scale factor
+        rel_t = ti - self.start_day
+        if rel_t >= len(self.daily_tests):
             return
+        n_tests = sc.randround(self.daily_tests[rel_t]/self.sim['pop_scale'])
+        if not (n_tests and np.isfinite(n_tests)):
+            return
+
+        # Assign testing weights by UID, starting with equal weight for everyone alive
         covid = self._covid()
-        alive = np.asarray(self.sim.people.auids)
-        diag = np.asarray(covid.diagnosed[ss.uids(alive)])
-        eligible = alive[~diag]
-        if not len(eligible):
+        alive = self.sim.people.auids
+        test_probs = np.zeros(len(covid.symptomatic.raw))
+        test_probs[alive] = 1.0
+
+        # Handle symptomatic testing, optionally with a swab delay
+        symp_inds = covid.symptomatic.uids
+        symp_test = self.symp_test
+        if self.pdf:
+            symp_time = self._symp_time(symp_inds)
+            inv_count = (np.bincount(symp_time)/len(symp_time)) # Find how many people have had symptoms of a set time and invert
+            count = np.nan * np.ones(inv_count.shape) # Initialize the count
+            count[inv_count != 0] = 1/inv_count[inv_count != 0] # Update the counts where defined
+            symp_test *= self.pdf.pdf(symp_time) * count[symp_time] # Put it all together
+        test_probs[symp_inds] *= symp_test
+
+        # Handle the other groups
+        test_probs[self._ili_inds(symp_inds)] *= self.symp_test
+        test_probs[get_quar_inds(self.quar_policy, self.sim)] *= self.quar_test
+        if self.subtarget is not None:
+            subtarget_inds, subtarget_vals = get_subtargets(self.subtarget, self.sim)
+            test_probs[subtarget_inds] = test_probs[subtarget_inds]*subtarget_vals
+        test_probs[covid.diagnosed.uids] = 0.0
+
+        # Choose who tests, without replacement, weighted by the testing probabilities
+        eligible = test_probs.nonzero()[0]
+        n = min(n_tests, len(eligible)) # Don't try to test more people than have nonzero testing probability
+        if not n:
             return
-        # Symptomatic-weighted selection without replacement, via a deterministic per-(seed, ti) stream.
-        symp = np.asarray(covid.symptomatic[ss.uids(eligible)])
-        weights = np.where(symp, self.symp_test, 1.0).astype(float)
-        weights = weights / weights.sum()
-        n = min(n_tests, len(eligible))
-        try:
-            base = int(self.sim.pars.rand_seed)
-        except Exception:
-            base = 0
-        rng = np.random.default_rng([base, 90, ti])
+        weights = test_probs[eligible]/test_probs[eligible].sum()
+        rng = np.random.default_rng([self._seed(), 90, ti])
         chosen = ss.uids(np.sort(rng.choice(eligible, size=n, replace=False, p=weights)))
         covid.test(chosen, test_sensitivity=self.sensitivity, loss_prob=self.loss_prob,
                    test_delay=self.test_delay)
@@ -291,7 +444,7 @@ class contact_tracing(Intervention):
         return
 
 
-# %% Vaccination interventions (M6) -----------------------------------------------------------------
+# %% Vaccination interventions -----------------------------------------------------------------
 
 __all__ += ['BaseVaccination', 'vaccinate', 'vaccinate_prob', 'vaccinate_num', 'simple_vaccine']
 
@@ -357,7 +510,7 @@ class BaseVaccination(Intervention):
     """
     Base class for vaccination (the v3 ``BaseVaccination``).
 
-    Confers immunity by conferring/boosting neutralizing antibodies through the shared M4 NAb pipeline
+    Confers immunity by conferring/boosting neutralizing antibodies through the same NAb pipeline as natural infection
     (so it requires ``use_waning=True``; for the non-NAb path use ``cv.simple_vaccine``). Subclasses
     implement ``select_people()`` (the allocation strategy); this base handles vaccine-parameter
     parsing, registration into the disease module's vaccine registry, ``target_eff`` back-calculation,
@@ -382,7 +535,6 @@ class BaseVaccination(Intervention):
 
     def _parse_vaccine_pars(self, vaccine):
         """Resolve a predefined product name or a pars dict into ``self.p`` (v3 _parse_vaccine_pars)."""
-        import covasim.parameters as cvpar
         if isinstance(vaccine, str):
             choices, mapping = cvpar.get_vaccine_choices()
             variant_pars = cvpar.get_vaccine_variant_pars()
@@ -408,8 +560,6 @@ class BaseVaccination(Intervention):
 
     def _register(self, covid):
         """Populate missing dose/variant pars, back-calculate target_eff, and register in the module."""
-        import covasim.parameters as cvpar
-        import covasim.immunity as cvimm
         default_dose = cvpar.get_vaccine_dose_pars(default=True)
         default_var  = cvpar.get_vaccine_variant_pars(default=True)
         for key in default_dose:                       # fill missing dose pars (nab_init/nab_boost/doses/interval)
@@ -538,7 +688,7 @@ class vaccinate_num(BaseVaccination):
 
     def init_post(self):
         super().init_post()
-        if isinstance(self.num_doses, dict):  # day-index keys (string dates unsupported in M6)
+        if isinstance(self.num_doses, dict):  # day-index keys (string dates are not supported)
             self.num_doses = {int(k): v for k, v in self.num_doses.items()}
         self._sequence = self._process_sequence(self.sequence)
         return
@@ -691,7 +841,7 @@ class historical_vaccinate_prob(vaccinate_prob):
     Probability-based vaccination that may occur BEFORE t=0 (the v3 ``historical_vaccinate_prob``).
 
     Negative ``days`` are applied at initialisation: a fraction ``prob`` of agents is vaccinated as if
-    on that (back-dated) day, so they start the sim with appropriately-decayed NAbs (via the M4
+    on that (back-dated) day, so they start the sim with appropriately-decayed NAbs (via the NAb waning
     kinetic kernel, replayed from the event). Non-negative ``days`` behave like ``cv.vaccinate_prob``.
     Requires ``use_waning=True``. (Bounded port: a single back-dated dose per pre-t=0 day; multi-dose
     historical scheduling is approximated by the vaccine's per-dose peak NAb.)
@@ -727,21 +877,21 @@ class historical_wave(Intervention):
     Seed a prior wave of natural infection before t=0 (the v3 ``historical_wave``).
 
     At initialisation, a fraction ``prob`` of agents are marked recovered as if infected ``days_prior``
-    days ago, conferring back-dated natural NAbs (decayed via the M4 kernel) + the natural
+    days ago, conferring back-dated natural NAbs (decayed via the NAb waning kernel) + the natural
     cross-immunity matrix. Requires ``use_waning=True``. Bounded port: a single prior wave of the wild
     variant; the agents are placed directly in the recovered state (not re-simulated).
 
     Args:
         days_prior (int): how many days before t=0 the prior wave occurred.
         prob (float): fraction of the population infected in the prior wave.
-        variant (int): variant index of the prior wave (default 0, wild).
+        variant (str/int): name or index of the variant of the prior wave (default wild).
     """
 
-    def __init__(self, days_prior, prob, variant=0, **kwargs):
+    def __init__(self, days_prior, prob, variant=None, **kwargs):
         super().__init__(**kwargs)
         self.days_prior = int(days_prior)
         self.prob = float(prob)
-        self.variant = int(variant)
+        self.variant = 'wild' if variant is None else variant
         self._select = ss.bernoulli(p=0.0)
         return
 
@@ -750,6 +900,15 @@ class historical_wave(Intervention):
         covid = self._covid()
         if not covid.pars.use_waning:
             raise RuntimeError('cv.historical_wave() requires use_waning=True.')
+        if getattr(self.sim, 'rescale', False) and self.sim['pop_scale'] > 1:
+            errormsg = 'cv.historical_wave() requires rescale=False, since rescaling assumes non-included agents are naive. Please disable dynamic rescaling.'
+            raise RuntimeError(errormsg)
+        mapping = {label:ind for ind,label in covid.variant_map.items()}
+        if isinstance(self.variant, str):
+            if self.variant not in mapping:
+                errormsg = f'cv.historical_wave() cannot add the new variant "{self.variant}", must be added to sim via cv.variant(). Current variants are: {sc.strjoin(mapping.keys())}'
+                raise ValueError(errormsg)
+            self.variant = mapping[self.variant]
         alive = covid.sim.people.auids
         self._select.set(p=self.prob)
         chosen = alive[self._select.rvs(alive)]
@@ -763,7 +922,7 @@ class historical_wave(Intervention):
         # Place the agents in the recovered state so the natural cross-immunity path also applies.
         covid.susceptible[chosen] = False
         covid.infected[chosen]    = False
-        covid.exposed[chosen]     = False
+        covid.preinfectious[chosen] = False
         covid.recovered[chosen]   = True
         covid.ti_recovered[chosen] = event_day
         covid.recovered_variant[chosen] = self.variant
@@ -788,13 +947,52 @@ def prior_immunity(*args, **kwargs):
 __all__ += ['change_beta', 'clip_edges', 'dynamic_pars', 'sequence']
 
 
-def _day_change_map(days, changes):
-    """Build a {day_index: change_value} map from parallel days/changes (scalars or lists)."""
-    days = [int(round(d)) for d in sc.toarray(days)]
-    changes = np.atleast_1d(np.asarray(sc.toarray(changes), dtype=float))
-    if changes.size == 1:
-        changes = np.full(len(days), changes.item())
-    return {d: float(c) for d, c in zip(days, changes)}
+def find_day(arr, t=None, interv=None, sim=None, which='first'):
+    '''
+    Find which days of an intervention match the current timestep (the v3 ``cv.find_day``).
+
+    Args:
+        arr (list/function): list of days in the intervention, or a boolean array; or a function ``arr(interv, sim)`` that returns these
+        t (int): current simulation timestep
+        which (str): what to return: 'first', 'last', or 'all' indices
+        interv (intervention): the intervention object (usually self); only used if arr is callable
+        sim (sim): the simulation object; only used if arr is callable
+
+    Returns:
+        inds (list): list of matching days; length zero or one unless which is 'all'
+    '''
+    if callable(arr):
+        arr = sc.toarray(arr(interv, sim))
+    all_inds = sc.findinds(arr=arr, val=t)
+    if len(all_inds) == 0 or which == 'all':
+        inds = all_inds
+    elif which == 'first':
+        inds = [all_inds[0]]
+    elif which == 'last':
+        inds = [all_inds[-1]]
+    else:
+        errormsg = f'Argument "which" must be "first", "last", or "all", not "{which}"'
+        raise ValueError(errormsg)
+    return inds
+
+
+def process_days(sim, days):
+    """Convert days (day indices, date strings, or dates) to an array of day indices; leave a callable as-is (v3 ``process_days``)."""
+    if callable(days):
+        return days
+    return sc.toarray(sim.day(days))
+
+
+def process_changes(changes, days):
+    """Ensure the changes are an array matching the days (v3 ``process_changes``)."""
+    changes = sc.toarray(changes).astype(float)
+    if not callable(days):
+        if len(changes) == 1:
+            changes = np.full(len(days), changes[0])
+        elif len(changes) != len(days):
+            errormsg = f'Number of days supplied ({len(days)}) does not match number of changes ({len(changes)})'
+            raise ValueError(errormsg)
+    return changes
 
 
 class change_beta(Intervention):
@@ -802,10 +1000,10 @@ class change_beta(Intervention):
     Change transmissibility (beta) by a factor on given days (the v3 ``cv.change_beta``).
 
     Args:
-        days (int/list): day(s) on which to change beta.
+        days (int/list/function): day(s) on which to change beta, or a function ``days(interv, sim)`` returning them
         changes (float/list): the multiplicative change(s) (1 = no change, 0 = no transmission),
             applied to the ORIGINAL beta (not cumulative).
-        layers (str/list): which network layers to change (default: all of the disease's beta layers).
+        layers (str/list): which network layers to change (default: all, by changing the overall beta).
     """
 
     def __init__(self, days, changes, layers=None, **kwargs):
@@ -813,33 +1011,30 @@ class change_beta(Intervention):
         self.days = days
         self.changes = changes
         self.layers = layers
-        self._map = None
-        self._orig = None     # {layer: original per-day beta value (float)}
+        self.orig_betas = None # {layer: original beta_layer value}, or {'overall': original beta value}
         return
 
     def init_post(self):
         super().init_post()
+        self.days = process_days(self.sim, self.days)
+        self.changes = process_changes(self.changes, self.days)
         covid = self._covid()
-        if callable(self.days):
-            # v3 dynamic-trigger days (a callable returning days) are not ported; treat as inert
-            # rather than crashing. See NOTES_FOR_CLIFF (tutorial validation) for the v4 approach.
-            self._map = {}
+        if self.layers is None:
+            self.orig_betas = {'overall': ss.probperday(covid.pars.beta).value} # Per-day value, whether stored as a float or a rate
         else:
-            self.days = self.sim.day(self.days)  # accept date strings / datetimes as well as day indices
-            self._map = _day_change_map(self.days, self.changes)
-        beta = covid.pars.beta
-        layers = list(beta.keys()) if self.layers is None else sc.tolist(self.layers)
-        self._orig = {lk: float(beta[lk]) for lk in layers}
+            self.orig_betas = {lk: covid._layer_par('beta_layer', lk) for lk in sc.tolist(self.layers)}
+            if not isinstance(covid.pars.beta_layer, dict): # A scalar beta_layer: expand it so layers can be changed individually
+                covid.pars.beta_layer = {lk: covid.pars.beta_layer for lk in self.sim.networks.keys()}
         return
 
     def step(self):
-        ti = self.ti
-        if ti not in self._map:
-            return
         covid = self._covid()
-        change = self._map[ti]
-        for lk, orig in self._orig.items():
-            covid.pars.beta[lk] = ss.probperday(orig * change)  # scale the original per-day beta
+        for ind in find_day(self.days, self.ti, interv=self, sim=self.sim):
+            for lk, orig in self.orig_betas.items():
+                if lk == 'overall':
+                    covid.pars.beta = ss.probperday(orig * self.changes[ind])
+                else:
+                    covid.pars.beta_layer[lk] = orig * self.changes[ind]
         return
 
 
@@ -853,7 +1048,7 @@ class clip_edges(Intervention):
     rises again.
 
     Args:
-        days (int/list): day(s) on which to clip.
+        days (int/list/function): day(s) on which to clip, or a function ``days(interv, sim)`` returning them
         changes (float/list): fraction of edges to keep on each day.
         layers (str/list): which layers to clip (default: all).
     """
@@ -863,14 +1058,13 @@ class clip_edges(Intervention):
         self.days = days
         self.changes = changes
         self.layers = layers
-        self._map = None
         self._orig = None     # {layer: (p1, p2, beta) of the ORIGINAL full edge set}
         return
 
     def init_post(self):
         super().init_post()
-        self.days = self.sim.day(self.days)  # accept date strings / datetimes as well as day indices
-        self._map = _day_change_map(self.days, self.changes)
+        self.days = process_days(self.sim, self.days)
+        self.changes = process_changes(self.changes, self.days)
         nets = self.sim.networks
         self.layers = list(nets.keys()) if self.layers is None else sc.tolist(self.layers)
         self._orig = {}
@@ -881,9 +1075,10 @@ class clip_edges(Intervention):
 
     def step(self):
         ti = self.ti
-        if ti not in self._map:
+        inds = find_day(self.days, ti, interv=self, sim=self.sim)
+        if not len(inds):
             return
-        keep = self._map[ti]
+        keep = self.changes[inds[0]]
         nets = self.sim.networks
         try:
             base = int(self.sim.pars.rand_seed)

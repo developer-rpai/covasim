@@ -5,7 +5,7 @@ Fast unit + smoke tests for the harness machinery:
   - parity_gate unit tests
   - compute_drift unit tests
 
-The heavy multi-seed z-score release gate lives in tests/test_m0_parity.py.
+The heavy multi-seed z-score release gate lives in tests/test_parity_anchor.py.
 """
 
 import sys
@@ -24,7 +24,7 @@ from regression.compare import compute_drift  # noqa: E402
 
 # --- Anchor smoke test --------------------------------------------------------
 
-@pytest.mark.skip(reason='M0 anchor (hybrid + waning) needs M2+ features; superseded by anchor_m1 in M1.')
+@pytest.mark.skip(reason='Vanilla anchor is superseded by the per-feature parity gates (test_parity_*.py).')
 def test_anchor_runs():
     short = run_and_summarize()
     missing = set(METRIC_KEYS) - set(short.keys())

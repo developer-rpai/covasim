@@ -20,4 +20,4 @@ The test `test_baselines.py` checks to see if results changed unintentionally. I
 
 ## regression (v4.0 migration harness)
 
-There is also a self-contained regression harness under `tests/regression/` used for the v3.1.8 -> v4.0 Starsim port. It is documented in [`tests/regression/README.md`](regression/README.md). It compares a v4 run of a pinned anchor scenario against a locally-generated, gitignored v3.1.8 baseline: a fast informational `+/-10%` drift CLI (`compare.py`) and a multi-seed z-score parity gate (`test_m0_parity.py`, `|z| < 3`). It layers on top of `baseline.json` / `test_baselines.py` rather than replacing them.
+There is also a self-contained regression harness under `tests/regression/` used for the v3.1.8 -> v4.0 Starsim port. It is documented in [`tests/regression/README.md`](regression/README.md). It compares a v4 run of a pinned anchor scenario against a locally-generated, gitignored v3.1.8 baseline: a fast informational `+/-10%` drift CLI (`compare.py`) and multi-seed z-score parity gates, one per feature area (`test_parity_*.py`). It layers on top of `baseline.json` / `test_baselines.py` rather than replacing them.

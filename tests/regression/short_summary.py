@@ -1,13 +1,13 @@
-"""Short-summary builder for the M0 vanilla anchor.
+"""Short-summary builders for the regression anchors.
 
 Returns a flat {metric: float} dict pinned to Covasim's own sim.summary (the
 end-of-run flat dict of result_keys()) plus two epidemic-shape metrics computed
 from the sim.results time series (peak prevalence, peak n_infectious).
 
 Testing/vaccination cumulatives (cum_tests/cum_diagnoses/cum_doses) are omitted
-because the M0 anchor has no interventions, so they are identically zero; they
-re-enter via the M5/M6 capability anchors. r_eff is omitted from the gated set
-because it is version-sensitive (Covasim's own test_regression.py skips it).
+from the vanilla summary because that anchor has no interventions, so they are
+identically zero; they are covered by the testing and vaccination summaries below.
+r_eff is omitted from the gated set because it is version-sensitive (Covasim's own test_regression.py skips it).
 """
 import numpy as np
 
@@ -41,7 +41,7 @@ def _series_max(sim, key):
 
 
 def build_summary(sim):
-    """Return the M0 anchor short summary as a flat dict of floats.
+    """Return the vanilla anchor short summary as a flat dict of floats.
 
     Args:
         sim (cv.Sim): a run Covasim sim (sim.summary populated, sim.results ready).
@@ -69,14 +69,15 @@ def build_summary(sim):
     return out
 
 
-# --- M1 (basic transmission) summary -----------------------------------------
-# M1's gated metrics are the basic-transmission outcomes (no symptomatic/severe/
-# critical/death burden -- those are identically zero in M1 and re-enter at M2).
-METRIC_KEYS_M1 = ('cum_infections', 'peak_prevalence', 'peak_n_infectious')
+# --- Basic transmission summary ----------------------------------------------
+# The gated metrics are the basic-transmission outcomes (no symptomatic/severe/
+# critical/death burden -- those are identically zero in the transmission anchor
+# and are covered by the natural-history summary).
+METRIC_KEYS_TRANSMISSION = ('cum_infections', 'peak_prevalence', 'peak_n_infectious')
 
 
-def build_summary_m1(sim):
-    """Return the M1 short summary, working under BOTH v3.1.8 and v4 (Starsim) Covasim.
+def build_summary_transmission(sim):
+    """Return the transmission short summary, working under BOTH v3.1.8 and v4 (Starsim) Covasim.
 
     The two engines are distinguished by duck-typing (the v4 Starsim Sim has a
     ``diseases`` collection; the v3.1.8 Sim does not), so this avoids importing
@@ -85,7 +86,7 @@ def build_summary_m1(sim):
     Cross-version-comparable definitions:
       - cum_infections: total ever infected INCLUDING the initial seed. v3.1.8's
         ``summary['cum_infections']`` already counts the seed; for v4 we use
-        currently-infected + recovered at the final step (equivalent, since M1 has
+        currently-infected + recovered at the final step (equivalent, since the transmission anchor has
         no deaths and no waning, so everyone ever infected is either infected or recovered).
       - peak_prevalence / peak_n_infectious: max over the run of the prevalence and
         infectious-count time series.
@@ -94,7 +95,7 @@ def build_summary_m1(sim):
         sim: a run Covasim sim (v3.1.8 ``cv.Sim`` or v4 ``cv.Sim``).
 
     Returns:
-        dict of {metric_name: float} over METRIC_KEYS_M1.
+        dict of {metric_name: float} over METRIC_KEYS_TRANSMISSION.
     """
     if hasattr(sim, 'diseases'):  # v4 (Starsim-based)
         disease = list(sim.diseases.values())[0]
@@ -114,19 +115,19 @@ def build_summary_m1(sim):
     }
 
 
-# --- M2 (natural-history parity) summary -------------------------------------
-# Transmission metrics (re-converged at M2) PLUS the new burden cumulatives.
-METRIC_KEYS_M2 = (
+# --- Natural-history summary -------------------------------------------------
+# Transmission metrics PLUS the burden cumulatives.
+METRIC_KEYS_NATURAL_HISTORY = (
     'cum_infections', 'peak_prevalence', 'peak_n_infectious',
     'cum_symptomatic', 'cum_severe', 'cum_critical', 'cum_deaths',
 )
 
 
-def build_summary_m2(sim):
-    """Return the M2 short summary (transmission + burden), under v3.1.8 or v4 (duck-typed).
+def build_summary_natural_history(sim):
+    """Return the natural-history short summary (transmission + burden), under v3.1.8 or v4 (duck-typed).
 
     cum_infections is seed-inclusive on both sides: v3 uses summary['cum_infections']; v4 uses
-    recovered + still-infected + cum_deaths (= everyone ever infected, since M2 has no reinfection).
+    recovered + still-infected + cum_deaths (= everyone ever infected, since this anchor has no reinfection).
     Burden cumulatives come from sim.summary (v3) or the disease results (v4).
     """
     if hasattr(sim, 'diseases'):  # v4 (Starsim-based)
@@ -154,19 +155,19 @@ def build_summary_m2(sim):
     }
 
 
-# --- M3 (multi-variant + cross-immunity) summary -----------------------------
+# --- Multi-variant + cross-immunity summary ----------------------------------
 # Aggregate burden/shape PLUS per-variant counts for wild/alpha/delta. Under reinfection the
 # aggregate cum_infections counts infection EVENTS (= sum over variants of cum_infections_by_variant),
 # matching v3's flow-based definition (NOT unique-ever-infected agents).
-_M3_VARIANTS = ('wild', 'alpha', 'delta')
-METRIC_KEYS_M3 = (
+_VARIANT_LABELS = ('wild', 'alpha', 'delta')
+METRIC_KEYS_VARIANTS = (
     'cum_infections', 'cum_deaths', 'peak_n_infectious', 'peak_prevalence',
-) + tuple(f'cum_infections_{v}' for v in _M3_VARIANTS) \
-  + tuple(f'peak_n_infectious_{v}' for v in _M3_VARIANTS)
+) + tuple(f'cum_infections_{v}' for v in _VARIANT_LABELS) \
+  + tuple(f'peak_n_infectious_{v}' for v in _VARIANT_LABELS)
 
 
-def build_summary_m3(sim):
-    """Return the M3 multi-variant short summary, under v3.1.8 or v4 (duck-typed).
+def build_summary_variants(sim):
+    """Return the multi-variant short summary, under v3.1.8 or v4 (duck-typed).
 
     Aggregate + per-variant (wild/alpha/delta) metrics, defined identically on both engines:
       - cum_infections: total infection EVENTS = sum over variants of cum_infections_by_variant
@@ -196,7 +197,7 @@ def build_summary_m3(sim):
             'peak_prevalence':   peak_n_inf / total_pop if total_pop else 0.0,
         }
         label_to_idx = {lab: i for i, lab in vmap.items()}
-        for lab in _M3_VARIANTS:
+        for lab in _VARIANT_LABELS:
             i = label_to_idx.get(lab)
             out[f'cum_infections_{lab}']    = float(ci[i, -1]) if i is not None else 0.0
             out[f'peak_n_infectious_{lab}'] = float(ni[i].max()) if i is not None else 0.0
@@ -221,23 +222,23 @@ def build_summary_m3(sim):
         'peak_n_infectious': peak_n_inf,
         'peak_prevalence':   peak_n_inf / total_pop if total_pop else 0.0,
     }
-    for lab in _M3_VARIANTS:
+    for lab in _VARIANT_LABELS:
         i = label_to_idx.get(lab)
         out[f'cum_infections_{lab}']    = float(ci[i, -1]) if i is not None else 0.0
         out[f'peak_n_infectious_{lab}'] = float(ni[i].max()) if i is not None else 0.0
     return out
 
 
-# --- M5 (testing / tracing / quarantine) summary -----------------------------
+# --- Testing / tracing / quarantine summary ----------------------------------
 # Burden + epidemic shape PLUS the testing/quarantine outcomes.
-METRIC_KEYS_M5 = (
+METRIC_KEYS_TESTING = (
     'cum_infections', 'cum_deaths', 'peak_n_infectious',
     'cum_tests', 'cum_diagnoses', 'peak_n_quarantined', 'peak_n_isolated',
 )
 
 
-def build_summary_m5(sim):
-    """Return the M5 short summary (burden + testing/quarantine), under v3.1.8 or v4 (duck-typed)."""
+def build_summary_testing(sim):
+    """Return the testing short summary (burden + testing/quarantine), under v3.1.8 or v4 (duck-typed)."""
     if hasattr(sim, 'diseases'):  # v4
         d = list(sim.diseases.values())[0]
         res = d.results
@@ -263,16 +264,16 @@ def build_summary_m5(sim):
     }
 
 
-# --- M6 (vaccination) summary ------------------------------------------------
+# --- Vaccination summary -----------------------------------------------------
 # Burden + epidemic shape PLUS the vaccination outcomes.
-METRIC_KEYS_M6 = (
+METRIC_KEYS_VACCINATION = (
     'cum_infections', 'cum_severe', 'cum_deaths', 'peak_n_infectious',
     'cum_doses', 'cum_vaccinated',
 )
 
 
-def build_summary_m6(sim):
-    """Return the M6 vaccination short summary, under v3.1.8 or v4 (duck-typed)."""
+def build_summary_vaccination(sim):
+    """Return the vaccination short summary, under v3.1.8 or v4 (duck-typed)."""
     if hasattr(sim, 'diseases'):  # v4
         d = list(sim.diseases.values())[0]
         res = d.results

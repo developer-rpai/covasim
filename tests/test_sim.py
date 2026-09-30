@@ -1,4 +1,4 @@
-"""M1 cv.Sim / cv.People assembly tests + continuous-runnability invariant."""
+"""cv.Sim / cv.People assembly tests + continuous-runnability invariant."""
 import numpy as np
 import pytest
 import starsim as ss
@@ -29,7 +29,7 @@ def test_default_sim_runs():
 
 
 def test_pop_infected_exact_seed():
-    # Exactly pop_infected agents are infected at t=0 (Open question E: exact-count seed).
+    # Exactly pop_infected agents are infected at t=0 (exact-count seed, as in v3).
     sim = cv.Sim(pop_size=2000, pop_infected=25, pop_type='random', n_days=1, rand_seed=2)
     sim.init()
     assert int(sim.diseases.covid.infected.sum()) == 25

@@ -1,4 +1,4 @@
-"""Contact-structure metrics for the M1 acceptance gate.
+"""Contact-structure metrics for the v3.1.8 contact-network parity check (test_network.py).
 
 These summarize a built contact network so a v4 run can be compared to v3.1.8:
   - degree_by_layer(networks, pop_size) -> {layer: per-agent degree array}

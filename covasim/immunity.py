@@ -1,10 +1,9 @@
 """
-Variants and (in M4) immunity for Covasim on the Starsim base.
+Variants and immunity for Covasim on the Starsim base.
 
-M3 restores ``cv.variant`` -- the v3 public class for adding a co-circulating variant
-to a sim. In **Design B** (single ``cv.COVID`` module with an internal variant axis),
-``cv.variant`` is NOT a disease/module; it is a lightweight registration + seeding
-descriptor, exactly as in v3 (`_v2_legacy/immunity.py`):
+``cv.variant`` is the v3 public class for adding a co-circulating variant to a sim. Since
+there is a single ``cv.COVID`` module with an internal variant axis, ``cv.variant`` is not
+a disease/module; it is a lightweight registration + seeding descriptor, as in v3:
 
   - ``parse()``      -- resolve a string alias (``'alpha'``) or a pars dict into the 5
                         per-variant keys (``rel_beta``/``rel_symp_prob``/...).
@@ -13,13 +12,13 @@ descriptor, exactly as in v3 (`_v2_legacy/immunity.py`):
   - ``apply()``      -- on each matched introduction day, seed ``n_imports`` susceptibles
                         with this variant (via ``covid.import_variant``), bumping ``n_imports``.
 
-``cv.Sim(variants=[...])`` registers each into the one module before state allocation;
-with no variants (``nv==1``) the module is byte-identical to M2. The cross-immunity
-matrix builder (``build_immunity_matrix``) lives here too and is consumed by
-``cv.CrossImmunity`` (covasim/connectors.py). NAb time-kinetics / waning are M4.
+``cv.Sim(variants=[...])`` registers each into the module before the states are allocated.
+The cross-immunity matrix builder (``build_immunity_matrix``) and the neutralizing antibody
+(NAb) waning functions live here too, and are used by ``cv.CrossImmunity`` (connectors.py).
 """
 import numpy as np
 import sciris as sc
+import starsim as ss
 
 from . import parameters as cvpar
 
@@ -127,7 +126,6 @@ class variant(sc.prettyobj):
         except Exception:
             base = 0
         rng = np.random.default_rng([base, 80, int(self.index), ti])
-        import starsim as ss
         chosen = ss.uids(np.sort(rng.choice(np.asarray(susc), size=n, replace=False)))
         covid.import_variant(chosen, variant=self.index)
         return
@@ -138,7 +136,7 @@ def build_immunity_matrix(variant_map, override=None):
 
     ``matrix[target, source]`` is the protection a prior ``source`` infection confers against a
     ``target`` challenge (diagonal 1.0 = full homologous protection). Mirrors
-    ``_v2_legacy/immunity.py:284-295``: start from ``np.ones((nv,nv))`` and overwrite known pairs
+    Covasim v3.1.9 ``immunity.py:284-295``: start from ``np.ones((nv,nv))`` and overwrite known pairs
     from ``get_cross_immunity()`` (a dict-of-dicts keyed by variant label).
 
     Args:
@@ -162,9 +160,7 @@ def build_immunity_matrix(variant_map, override=None):
     return matrix
 
 
-# %% Neutralizing-antibody (NAb) waning engine (M4) -- ported from _v2_legacy/immunity.py.
-# These are the dormant functions wired in M4; until then they are importable but unused (the
-# M3-sanctioned landing zone). cvu.true(x) -> np.nonzero(x)[0]; default int/float -> numpy defaults.
+# %% Neutralizing-antibody (NAb) waning functions -- ported from Covasim v3.1.9 immunity.py
 
 def calc_VE(nab, ax, pars):
     """Map effective NAb levels to a per-axis immune-protection factor (v3 ``calc_VE``).
@@ -192,7 +188,7 @@ def calc_VE_symp(nab, pars):
     """Marginal vaccine efficacy against symptomatic disease (v3 ``calc_VE_symp``).
 
     ``VE_symp = 1 - (1 - VE_inf)·(1 - VE_symp|inf)`` where each factor is an inverse-logit of NAb. Used
-    by the vaccine ``target_eff`` back-calculation (M6) to map a target efficacy onto a peak NAb level.
+    by the vaccine ``target_eff`` back-calculation to map a target efficacy onto a peak NAb level.
     """
     nab = np.asarray(nab, dtype=float)
     exp_lo_inf = np.exp(pars['alpha_inf']) * nab ** pars['beta_inf']
@@ -278,10 +274,22 @@ def exp_decay(length, init_val, half_life, delay=None):
     decay_rate = np.log(2) / half_life if not np.isnan(half_life) else 0.0
     if delay is not None:
         t = np.arange(length - delay, dtype=int)
-        growth = (init_val / delay) * np.ones(delay)
+        growth = linear_growth(delay, init_val/delay)
         decay = init_val * np.exp(-decay_rate * t)
         result = np.concatenate([growth, decay], axis=None)
     else:
         t = np.arange(length, dtype=int)
         result = init_val * np.exp(-decay_rate * t)
     return np.diff(result)
+
+
+def linear_decay(length, init_val, slope):
+    """Calculate linear decay (v3 ``linear_decay``)"""
+    result = -slope*np.ones(length)
+    result[0] = init_val
+    return result
+
+
+def linear_growth(length, slope):
+    """Calculate linear growth (v3 ``linear_growth``)"""
+    return slope*np.ones(length)

@@ -1,4 +1,4 @@
-"""Contact-structure tests for cv.Network (the M1 acceptance gate, structural half).
+"""Contact-structure tests for cv.Network (structural checks + v3.1.8 equivalence).
 
 Builds cv.Network instances (random single-layer 'a' and the four hybrid layers
 h/s/w/c) on a properly-aged ss.People and asserts per-layer degree and age-window
@@ -112,15 +112,15 @@ def test_cosine_similarity_helper():
 
 # --- v3.1.8 equivalence (skips when the gitignored baseline is absent) -------
 
-_BASELINE = Path(__file__).parent / 'regression' / 'v3_m1_contacts.json'
+_BASELINE = Path(__file__).parent / 'regression' / 'v3_contacts.json'
 
 
 @pytest.mark.skipif(not _BASELINE.exists(),
-                    reason='Missing v3.1.8 contact baseline (regression/v3_m1_contacts.json); '
-                           'generate from a frozen v3.1.8 env (M1 Task 4).')
+                    reason='Missing v3.1.8 contact baseline (regression/v3_contacts.json); '
+                           'generate from a frozen v3.1.8 env.')
 def test_contact_structure_equivalence():
     import json
     base = json.loads(_BASELINE.read_text())
     # Compares per-layer mean degree (within tolerance) + age-mixing cosine similarity (> threshold).
-    # Final tolerances are pinned here once the v3.1.8 baseline exists (M1 Task 4).
-    raise NotImplementedError('Wired up in M1 Task 4 once the v3.1.8 contact baseline is generated.')
+    # Final tolerances are pinned here once the v3.1.8 baseline exists.
+    raise NotImplementedError('Not yet implemented: requires the v3.1.8 contact baseline to be generated.')

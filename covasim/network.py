@@ -4,29 +4,24 @@ Contact networks for Covasim on the Starsim base.
 ``cv.Network(ss.Network)`` reproduces Covasim's contact layers: the random
 single-layer ('a') backend and the hybrid four-layer (household 'h', school 's',
 work 'w', community 'c') backend. Each contact layer is one ``cv.Network``
-instance (one-instance-per-layer, the hpvsim pattern; ``sim.networks`` is the
+instance (``sim.networks`` is the
 analog of Covasim's ``People.contacts``). Both backends are **static** (Covasim's
 ``dynam_layer`` is 0 for every default layer), so edges are built once in
 ``add_pairs()`` from the ported ``population.py`` builders and never change.
 
 Per-layer transmissibility (Covasim's ``beta_layer``) is carried on the disease
-(``cv.COVID``'s per-layer ``beta`` dict), not here, so the per-edge ``beta`` stays
-1.0 and ``net_beta`` is inherited unchanged from ``ss.Network``.
+(``cv.COVID.pars.beta_layer``), not here, so the per-edge ``beta`` stays 1.0 and
+``net_beta`` is inherited unchanged from ``ss.Network``.
 """
 import numpy as np
 import sciris as sc
 import starsim as ss
 
+from . import parameters as cvpar
 from . import population as cvpop
 
 __all__ = ['Network', 'make_networks']
 
-
-# Covasim's default per-layer mean contacts (parameters.reset_layer_pars), keyed by pop_type.
-_CONTACTS = {
-    'random': dict(a=20),
-    'hybrid': dict(h=2.0, s=20, w=16, c=20),
-}
 
 # Age windows for the hybrid school/work layers (population.make_hybrid_contacts defaults).
 _SCHOOL_AGES = (6, 22)
@@ -64,8 +59,7 @@ class Network(ss.Network):
         """Deterministic per-(seed, layer) numpy Generator.
 
         Network draws are distributional (degree + age-mixing), not per-agent CRN, so a
-        plain seeded Generator suffices at M1; per-agent network CRN stability is revisited
-        in M8 if scenario differencing needs it.
+        plain seeded Generator is used for now.
         """
         try:
             base = int(self.sim.pars.rand_seed)
@@ -74,7 +68,7 @@ class Network(ss.Network):
         return np.random.default_rng(base*100 + _LAYER_SEED.get(self.layer, 0))
 
     def step(self):
-        """No-op: Covasim's M1 layers are static (dynam_layer=0), so edges never change after creation."""
+        """No-op: Covasim's default layers are static (dynam_layer=0), so edges never change after creation."""
         pass
 
     def add_pairs(self):
@@ -106,14 +100,14 @@ def make_networks(pop_type='random', contacts=None):
     Args:
         pop_type (str): 'random' (single layer 'a') or 'hybrid' (h/s/w/c).
         contacts (dict): optional per-layer mean contacts; defaults to Covasim's values
-            (parameters.reset_layer_pars).
+            (parameters.reset_layer_pars)
 
     Returns:
         list of cv.Network, one per contact layer.
     """
-    if pop_type not in _CONTACTS:
-        raise ValueError(f"pop_type {pop_type!r} not supported in M1 (choices: 'random', 'hybrid').")
-    cmap = sc.mergedicts(_CONTACTS[pop_type], contacts)
+    layer_pars = dict(pop_type=pop_type, contacts=contacts)
+    cvpar.reset_layer_pars(layer_pars)
+    cmap = layer_pars['contacts']
     if pop_type == 'random':
         return [Network('a', n_contacts=cmap['a'], microstructure='random')]
     return [

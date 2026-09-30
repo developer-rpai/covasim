@@ -1,8 +1,9 @@
-"""Compare one v4 run of the M0 anchor against a stored one-seed v3.1.8 snapshot.
+"""Compare one v4 run of a regression anchor (default: the vanilla anchor) against a stored
+one-seed v3.1.8 snapshot.
 
 This is the lightweight DEVELOPMENT gate: a per-metric +/-10% relative-drift
 table, always exit 0, informational only. The hard scientific gate is the
-multi-seed z-score parity gate in tests/test_m0_parity.py.
+multi-seed z-score parity gate in tests/test_parity_anchor.py.
 
 No-baseline mode: if the snapshot file is missing, print a notice and exit 0
 WITHOUT running the anchor (CLI-integrity check; this is the mode CI runs). The
@@ -15,6 +16,7 @@ Usage:
     python tests/regression/compare.py --save-snapshot   # from a v3.1.8 env
 """
 import argparse
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -77,39 +79,21 @@ def format_table(rows, threshold=THRESHOLD):
 def _resolve_run(anchor):
     """Return a zero-arg callable that runs the chosen anchor and returns its summary dict."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    if anchor == 'm0':
+    if anchor == 'vanilla':
         from anchor import run_and_summarize  # noqa: E402
         return run_and_summarize
-    if anchor.startswith('m1_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m1 import run_and_summarize as run_m1  # noqa: E402
-        return lambda: run_m1(pop_type=pop_type)
-    if anchor.startswith('m2_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m2 import run_and_summarize as run_m2  # noqa: E402
-        return lambda: run_m2(pop_type=pop_type)
-    if anchor.startswith('m3_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m3 import run_and_summarize as run_m3  # noqa: E402
-        return lambda: run_m3(pop_type=pop_type)
-    if anchor.startswith('m4_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m4 import run_and_summarize as run_m4  # noqa: E402
-        return lambda: run_m4(pop_type=pop_type)
-    if anchor.startswith('m5_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m5 import run_and_summarize as run_m5  # noqa: E402
-        return lambda: run_m5(pop_type=pop_type)
-    if anchor.startswith('m6_'):
-        pop_type = anchor.split('_', 1)[1]
-        from anchor_m6 import run_and_summarize as run_m6  # noqa: E402
-        return lambda: run_m6(pop_type=pop_type)
-    raise ValueError(f"Unknown anchor {anchor!r}; choices: m0, m1_*, m2_*, m3_*, m4_random|hybrid.")
+    feature, _, pop_type = anchor.rpartition('_')  # e.g. 'natural_history_random' -> ('natural_history', 'random')
+    features = ('transmission', 'natural_history', 'variants', 'waning', 'testing', 'vaccination')
+    if feature in features and pop_type in ('random', 'hybrid'):
+        module = importlib.import_module(f'anchor_{feature}')
+        return lambda: module.run_and_summarize(pop_type=pop_type)
+    choices = ', '.join(f'{f}_random|hybrid' for f in features)
+    raise ValueError(f"Unknown anchor {anchor!r}; choices: vanilla, {choices}.")
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description='Compare anchor run vs. v3.1.8 snapshot.')
-    p.add_argument('--anchor', default='m0', help='Anchor: m0 | m1_random | m1_hybrid (default m0).')
+    p.add_argument('--anchor', default='vanilla', help='Anchor: vanilla | <feature>_random | <feature>_hybrid (default vanilla).')
     p.add_argument('--baseline', type=Path, default=DEFAULT_BASELINE,
                    help=f'One-seed snapshot JSON (default: {DEFAULT_BASELINE}).')
     p.add_argument('--threshold', type=float, default=THRESHOLD,

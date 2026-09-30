@@ -1,7 +1,7 @@
 """Tests for the opportunistic interventions: change_beta / clip_edges / dynamic_pars / sequence.
 
-These round out the intervention API (architecture map: M5-or-opportunistic) and are needed for the
-M10 default-baseline scenario. All are additive -- no intervention => M1-M9 byte-identical.
+These round out the intervention API and are needed for the default-baseline scenario. All are
+additive -- with no intervention, results are unchanged.
 """
 import numpy as np
 import covasim as cv
@@ -29,8 +29,8 @@ def test_change_beta_restores():
     """A change back to 1.0 restores the original beta (changes are relative to the original)."""
     sim = _run(cv.change_beta(days=[20, 40], changes=[0.3, 1.0]))
     covid = sim.diseases.covid
-    # After the day-40 restore, beta should equal the original (the M1 base, 0.016*beta_layer).
-    assert abs(float(covid.pars.beta['h']) - 0.016 * 3.0) < 1e-9, 'beta restored to original on the reset day'
+    assert abs(covid.pars.beta.value - 0.016) < 1e-9, 'beta restored to original on the reset day'
+    assert covid.pars.beta_layer['h'] == 3.0, 'beta_layer unchanged when no layers are given'
 
 
 def test_clip_edges_reduces_transmission():
