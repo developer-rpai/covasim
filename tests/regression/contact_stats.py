@@ -9,7 +9,7 @@ import numpy as np
 
 
 def _edges(net):
-    """Return (p1, p2) integer arrays for a cv.Network."""
+    """Return (p1, p2) integer arrays for a network."""
     return np.asarray(net.edges['p1']), np.asarray(net.edges['p2'])
 
 
@@ -17,11 +17,11 @@ def degree_by_layer(networks, pop_size):
     """Per-agent contact degree for each layer.
 
     Args:
-        networks: an iterable (or ndict) of cv.Network instances.
+        networks: an iterable (or ndict) of networks.
         pop_size (int): number of agents (degree array length).
 
     Returns:
-        dict of {layer_label: np.ndarray of per-agent degree (length pop_size)}.
+        dict of {layer_name: np.ndarray of per-agent degree (length pop_size)}.
     """
     nets = networks.values() if hasattr(networks, 'values') else networks
     out = {}
@@ -30,7 +30,7 @@ def degree_by_layer(networks, pop_size):
         deg = np.zeros(pop_size, dtype=int)
         np.add.at(deg, p1, 1)  # each edge endpoint contributes one contact to each member
         np.add.at(deg, p2, 1)
-        out[net.label] = deg
+        out[net.name] = deg
     return out
 
 
@@ -38,7 +38,7 @@ def age_mixing_matrix(network, ages, bin_edges):
     """Source-age x target-age contact-count matrix for one layer.
 
     Args:
-        network: a cv.Network instance.
+        network: a network.
         ages (array): per-agent ages (indexed by UID).
         bin_edges (array): age-bin edges (e.g. np.arange(0, 105, 5)).
 

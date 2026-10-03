@@ -158,7 +158,7 @@ class MultiSim(cvc.V3MultiSim, ss.MultiSim):
         '''
         return super().shrink(die=die, **kwargs)
 
-    def reduce(self, quantiles=None, use_mean=False, bounds=None, output=False):
+    def reduce(self, *args, output=False, **kwargs):
         '''
         Combine multiple sims into a single sim statistically: by default, use
         the median value and the 10th and 90th percentiles for the lower and upper
@@ -167,7 +167,7 @@ class MultiSim(cvc.V3MultiSim, ss.MultiSim):
 
         The reduced sim becomes the base sim, so e.g. ``msim.results['cum_infections']``
         (the same as ``msim.base_sim.results['cum_infections']``) has ``.values``, ``.low``,
-        and ``.high``. The 2D by-variant results are not yet reduced.
+        and ``.high``.
 
         Args:
             quantiles (dict): the quantiles to use, e.g. [0.1, 0.9] or {'low : '0.1, 'high' : 0.9}
@@ -182,57 +182,9 @@ class MultiSim(cvc.V3MultiSim, ss.MultiSim):
             msim.reduce()
             msim.summarize()
         '''
-        # Handle inputs
-        if use_mean:
-            if bounds is None:
-                bounds = 2
-        else:
-            if quantiles is None:
-                quantiles = make_metapars()['quantiles']
-            if not isinstance(quantiles, dict):
-                try:
-                    quantiles = {'low':float(quantiles[0]), 'high':float(quantiles[1])}
-                except Exception as E:
-                    errormsg = f'Could not figure out how to convert {quantiles} into a quantiles object: must be a dict with keys low, high or a 2-element array ({str(E)})'
-                    raise ValueError(errormsg) from E
-
-        # Store information on the sims
-        n_runs = len(self)
-        reduced_sim = sc.dcp(self.sims[0])
-        reduced_sim.metadata = dict(parallelized=True, combined=False, n_runs=n_runs, quantiles=quantiles, use_mean=use_mean, bounds=bounds) # Store how this was parallelized
-
-        # Perform the statistics over each result, e.g. 'covid_cum_infections'
-        flats = [sim.results.flatten() for sim in self.sims]
-        done = set() # The top-level results (e.g. 'cum_infections') are the same objects as the COVID ones, so only reduce each once
-        for reskey,res in reduced_sim.results.flatten().items():
-            if res.ndim != 1 or id(res) in done: # Skip the 2D by-variant results
-                continue
-            done.add(id(res))
-            raw = np.array([flat[reskey].values for flat in flats]) # Shape (n_runs, npts)
-            if use_mean:
-                r_mean = np.mean(raw, axis=0)
-                r_std = np.std(raw, axis=0)
-                res[:] = r_mean
-                res.low = r_mean - bounds*r_std
-                res.high = r_mean + bounds*r_std
-            else:
-                res[:] = np.quantile(raw, q=0.5, axis=0)
-                res.low = np.quantile(raw, q=quantiles['low'], axis=0)
-                res.high = np.quantile(raw, q=quantiles['high'], axis=0)
-
-        # Compute and store final results
-        reduced_sim.summarize()
-        if not self._has_orig_sim():
-            self.orig_base_sim = self.base_sim
-        self.base_sim = reduced_sim
-        self.results = reduced_sim.results
-        self.summary = reduced_sim.summary
-        self.which = 'reduced'
-
-        if output:
-            return self.base_sim
-        else:
-            return self
+        super().reduce(*args, **kwargs)
+        self.results = self.base_sim.results # As in v3, the results are those of the reduced sim, rather than flattened
+        return self.base_sim if output else self
 
     def combine(self, output=False):
         '''

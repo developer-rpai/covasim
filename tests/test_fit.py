@@ -95,7 +95,7 @@ def test_fit_requires_data():
 
 def _calib_sim(rel_severe=1.0):
     import starsim as ss
-    covid = cv.COVID(beta={'a': ss.probperday(0.016)}, init_prev=50, rel_severe_prob=rel_severe)
+    covid = cv.COVID(beta={'a': ss.probperday(0.016)}, init_prev=ss.choose_n(50), rel_severe_prob=rel_severe)
     return cv.Sim(pop_size=10000, pop_infected=50, pop_type='random', n_days=60, rand_seed=1,
                   verbose=0, diseases=covid)
 

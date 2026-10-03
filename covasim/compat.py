@@ -14,15 +14,21 @@ import sciris as sc
 import starsim as ss
 from . import parameters as cvpar
 from . import network as cvnet
+from . import base as cvb
+from . import utils as cvu
+from . import misc as cvm
 
 __all__ = ['V3Module', 'V3Sim', 'V3Summary', 'V3People', 'V3MultiSim', 'V3Scenarios']
 
 
-def _with_default_sim(func):
-    ''' Let a v3-style method with a required "sim" argument be called without it, as Starsim does '''
+def _v3_finalize(func):
+    ''' Let a v3-style finalize(self, sim) be called without the sim, as Starsim does, and finish the Starsim finalization if it doesn't call super().finalize() '''
     @ft.wraps(func)
     def wrapper(self, sim=None, *args, **kwargs):
-        return func(self, self.sim if sim is None else sim, *args, **kwargs)
+        out = func(self, self.sim if sim is None else sim, *args, **kwargs)
+        if not self.finalized: # v3: custom finalize(sim) methods didn't need to call super().finalize()
+            V3Module.finalize(self)
+        return out
     return wrapper
 
 
@@ -51,7 +57,7 @@ class V3Module:
         if func is not None:
             sim_arg = inspect.signature(func).parameters.get('sim')
             if sim_arg is not None and sim_arg.default is inspect.Parameter.empty:
-                cls.finalize = _with_default_sim(func)
+                cls.finalize = _v3_finalize(func)
         return
 
     def init_post(self):
@@ -92,7 +98,11 @@ class V3Sim:
     '''
 
     # Parameters that determine how the sim is built, so can only be changed before it is initialized
-    _v3_init_keys = ['pop_size', 'pop_type', 'pop_infected', 'n_days', 'start_day', 'end_day', 'rand_seed', 'pop_scale', 'use_waning']
+    _v3_init_keys = ['pop_size', 'pop_type', 'pop_infected', 'n_days', 'start_day', 'end_day', 'rand_seed', 'pop_scale', 'rescale', 'use_waning']
+
+    def _is_v3_saved(self):
+        ''' Whether this is a sim saved by Covasim v3 and loaded with cv.load(): its results and v3 parameters can be read, but it can't be rerun '''
+        return 'pop_size' in self.__dict__.get('pars', {}) # In v4, the sim parameters use the Starsim names, e.g. n_agents
 
     def _v3_covid(self):
         ''' The COVID module: the one in the sim after initialization, else the one in the pars '''
@@ -107,19 +117,21 @@ class V3Sim:
 
     def __getitem__(self, key):
         ''' v3: sim['key'] returns the parameter '''
+        if self._is_v3_saved(): # The v3 parameters are all in sim.pars
+            return self.pars[key]
         covid = self._v3_covid()
         if key == 'pop_size':
             return self.pars.n_agents
         elif key == 'pop_type':
             return self.pop_type
-        elif key == 'pop_infected':
-            return covid.pars.init_prev
+        elif key == 'pop_infected': # The number of initial infections, from ss.choose_n()
+            return covid.pars.init_prev.pars.n
         elif key == 'n_days':
             return int(self.pars.dur.value)
-        elif key == 'start_day':
-            return sc.date(self.pars.start, as_date=False)
+        elif key == 'start_day': # As in v3, a date once the sim is initialized, else a string
+            return sc.date(self.pars.start, as_date=self.initialized)
         elif key == 'end_day':
-            return sc.datedelta(self['start_day'], days=self['n_days'])
+            return sc.datedelta(self['start_day'], days=self['n_days'], as_date=False) # A string, as in v3
         elif key == 'rand_seed':
             return self.pars.rand_seed
         elif key == 'pop_scale': # Before initialization, Starsim may not have calculated this yet
@@ -127,19 +139,21 @@ class V3Sim:
                 return self.pars.pop_scale
             else:
                 return self.pars.total_pop/self.pars.n_agents if self.pars.total_pop else 1.0
-        elif key == 'verbose':
-            return self.pars.verbose
+        elif key in ['verbose', 'rescale', 'rescale_threshold', 'rescale_factor']:
+            return self.pars[key]
         elif key == 'beta': # Stored as a rate; v3 used the daily probability
             beta = covid.pars.beta
             return beta if isinstance(beta, dict) else ss.probperday(beta).value
         elif key == 'contacts':
-            return {net.name: net.n_contacts for net in self._v3_networks()}
+            return cvnet.get_contacts(self._v3_networks())
         elif key == 'n_variants':
             return covid.nv
-        elif key in ['variant_map', 'variant_pars']:
+        elif key in ['variant_map', 'variant_pars', 'vaccine_map', 'vaccine_pars']:
             return getattr(covid, key)
-        elif key == 'prognoses': # Only stored if customized
-            return covid.pars.prognoses if covid.pars.prognoses is not None else cvpar.get_prognoses(by_age=covid.pars.prog_by_age)
+        elif key == 'prognoses': # Store the defaults when first accessed, so that changing them in place works, as in v3
+            if covid.pars.prognoses is None:
+                covid.pars.prognoses = cvpar.get_prognoses(by_age=covid.pars.prog_by_age)
+            return covid.pars.prognoses
         elif key in ['interventions', 'analyzers']:
             return list(getattr(self, key).values()) if self.initialized else sc.tolist(self.pars[key])
         elif covid is not None and key in covid.pars:
@@ -157,7 +171,7 @@ class V3Sim:
         if key == 'pop_size':
             self.pars.n_agents = value
         elif key == 'pop_infected':
-            covid.pars.init_prev = int(value)
+            covid.pars.init_prev = ss.choose_n(int(value))
         elif key == 'n_days':
             self.pars.dur = ss.days(value)
         elif key == 'start_day':
@@ -170,13 +184,20 @@ class V3Sim:
             self.pars.rand_seed = value
         elif key == 'pop_scale':
             self.pars.pop_scale = value
-        elif key == 'verbose':
-            self.pars.verbose = value
-        elif key in ['interventions', 'analyzers']:
-            if self.initialized:
-                errormsg = f'Cannot set "{key}" after the sim has been initialized; please set them when creating the sim'
-                raise RuntimeError(errormsg)
+        elif key in ['verbose', 'rescale', 'rescale_threshold', 'rescale_factor']:
             self.pars[key] = value
+        elif key in ['interventions', 'analyzers']:
+            if not self.initialized:
+                self.pars[key] = value
+            else: # v3: they can be added to a sim that has been run part-way, e.g. sim['interventions'] += [cv.test_prob(...)]
+                value = sc.tolist(value)
+                current = [id(mod) for mod in self[key]]
+                new = [mod for mod in value if id(mod) not in current]
+                if len(value) - len(new) != len(current):
+                    errormsg = f'Cannot remove or replace {key} after the sim has been initialized; they can only be added'
+                    raise RuntimeError(errormsg)
+                for mod in new:
+                    self._add_module(mod, key)
         elif key == 'beta':
             covid.pars.beta = value if isinstance(value, (dict, ss.Rate)) else ss.probperday(value)
         elif key in ['pop_type', 'contacts']: # Recreate the networks (and for pop_type, the per-layer parameters)
@@ -209,8 +230,19 @@ class V3Sim:
     # v3 properties and methods
 
     @property
+    def rescale_vec(self):
+        ''' v3: the number of people each agent represents on each timestep, which changes over time with dynamic rescaling '''
+        if self._is_v3_saved():
+            return self.__dict__['rescale_vec']
+        if self.pars.rescale:
+            return self.results.pop_scale.values
+        return np.full(self.t.npts, self.pars.pop_scale)
+
+    @property
     def npts(self):
         ''' v3: the number of timepoints '''
+        if self._is_v3_saved():
+            return self['n_days'] + 1
         return self.t.npts if self.initialized else self['n_days'] + 1
 
     @property
@@ -225,8 +257,8 @@ class V3Sim:
 
     @property
     def n(self):
-        ''' v3: the number of agents '''
-        return len(self.people) if self.initialized else self['pop_size']
+        ''' v3: the number of agents, including those who have died '''
+        return self.people.n_uids if self.initialized else self['pop_size']
 
     @property
     def scaled_pop_size(self):
@@ -235,7 +267,65 @@ class V3Sim:
 
     def layer_keys(self):
         ''' v3: the keys of the contact layers (i.e., networks) '''
-        return [net.name for net in self._v3_networks()]
+        if self._is_v3_saved():
+            return list(self['beta_layer'].keys())
+        return list(cvnet.get_contacts(self._v3_networks()).keys()) if not self.initialized else list(self.networks.keys())
+
+    @property
+    def label(self):
+        ''' The sim label; a sim saved by v3 stores it as an attribute, rather than in the parameters as in Starsim '''
+        if self._is_v3_saved():
+            return self.__dict__.get('label')
+        return ss.Sim.label.fget(self)
+
+    @label.setter
+    def label(self, label):
+        ss.Sim.label.fset(self, label)
+
+    def init_data(self, data=None):
+        ''' v3: keep the data as loaded by cv.load_data() (indexed by date, with a "date" column), rather than converting it to the Starsim format '''
+        if data is not None:
+            self.data = cvm.load_data(data)
+        return
+
+    def reset_layer_pars(self, layer_keys=None, force=False):
+        ''' v3: set the per-layer parameters (beta_layer, iso_factor, and quar_factor) to their defaults, for any layers that don't have them '''
+        covid = self._v3_covid()
+        keys = ['beta_layer', 'iso_factor', 'quar_factor']
+        pars = dict(pop_type=self.pop_type, **{key:covid.pars[key] for key in keys})
+        cvpar.reset_layer_pars(pars, layer_keys=layer_keys or self.layer_keys(), force=force)
+        covid.pars.update({key:pars[key] for key in keys})
+        return
+
+    def _add_network(self, network):
+        ''' Add a network to a sim that has been initialized but not yet run, e.g. via sim.people.contacts.add_layer() '''
+        if self.ti > 0:
+            errormsg = f'Cannot add network "{network.name}" since the sim has already started running'
+            raise RuntimeError(errormsg)
+        self._add_module(network, 'networks')
+        self.reset_layer_pars() # Use the default beta_layer etc. for this network, unless already set
+        return
+
+    def _add_module(self, module, key):
+        ''' Add a module (e.g. an intervention) to a sim that has already been initialized, and possibly run part-way; Starsim only adds modules when the sim is initialized '''
+        if self.complete:
+            errormsg = f'Cannot add {key} to a sim that has already been run'
+            raise RuntimeError(errormsg)
+        names = {mod.name:key for mod in self.modules} # Make the name unique, as Starsim does on initialization
+        ss.SimPars.validate_name(module, key, names)
+        getattr(self, key)[module.name] = module
+        module.init_pre(self)
+        self.dists.init(obj=self) # Initialize the module's distributions, if any (the others are already initialized)
+        self.dists.copy_to_module(module)
+        if key == 'networks':
+            module.init_post(add_pairs=not len(module)) # Only create edges if none were supplied
+        else:
+            module.init_post()
+        ti = self.ti
+        module.t.ti = ti # The module's own time index starts at 0
+        self.loop.init() # Add the module to the integration loop...
+        self.loop.index = [entry.ti for entry in self.loop.plan].index(ti) # ...and continue from the start of the current timestep
+        return
 
     def result_keys(self, which='main'):
         ''' v3: the keys of the COVID results; which can be 'main', 'variant', or 'all' '''
@@ -247,10 +337,10 @@ class V3Sim:
             return []
         results = self.diseases.covid.results
         keys = []
-        if which in ['main', 'all']:
-            keys += [key for key,res in results.items() if isinstance(res, ss.Result)]
-        if which in ['variant', 'all']:
-            keys += [key for key,res in results['variant'].items() if isinstance(res, ss.Result)]
+        for key,res in results.items():
+            is_variant = key.endswith('_by_variant')
+            if isinstance(res, ss.Result) and (which == 'all' or is_variant == (which == 'variant')):
+                keys.append(key)
         return keys
 
     def update_pars(self, pars=None, **kwargs):
@@ -260,10 +350,16 @@ class V3Sim:
         return
 
     def set_seed(self, seed=-1):
-        ''' v3: set the seed from the stored or supplied value (also seeds NumPy's global random number generator, as in v3) '''
-        if seed != -1:
+        '''
+        v3: set the seed from the stored or supplied value; this seeds the global random number generators (e.g. used by
+        cv.choose()), as in v3, while Starsim's are seeded from rand_seed. Once the sim is initialized, rand_seed can't be
+        changed, so a supplied seed only seeds the global ones (e.g. v3 code that reset the seed on each timestep).
+        '''
+        if seed == -1:
+            seed = self['rand_seed']
+        elif not self.initialized:
             self['rand_seed'] = seed
-        np.random.seed(self['rand_seed'])
+        cvu.set_seed(seed)
         return
 
     def step(self):
@@ -273,13 +369,18 @@ class V3Sim:
     def run(self, do_plot=False, until=None, restore_pars=None, reset_seed=None, verbose=None, **kwargs):
         '''
         v3: run the sim, optionally plotting, and stopping early if the timelimit or stopping_func is reached.
-        As in v3, ``until`` is the day to run until (not including that day). restore_pars and reset_seed are
-        ignored, since v4 uses separate random number streams.
+        As in v3, ``until`` is the day to run until (not including that day), and if ``restore_pars`` is true
+        (default), COVID parameters changed by interventions are restored when the sim is finalized. reset_seed
+        is ignored, since v4 uses separate random number streams.
         '''
+        if not self.initialized:
+            self.init()
+        if self.ti == 0: # v3: store the parameters before the run, to restore afterwards
+            restore_pars = True if restore_pars is None else restore_pars
+            self._orig_pars = dict(self.diseases.covid.pars) if restore_pars else None # Interventions replace rather than modify the values, so a shallow copy is enough
+
         # Convert v3 "until" (the next timestep to run) to Starsim's (the last date to run)
         if until is not None:
-            if not self.initialized:
-                self.init()
             until = self.day(until)
             if until > self.npts:
                 errormsg = f'Requested to run until t={until} but the simulation end is t={self.npts}'
@@ -293,8 +394,6 @@ class V3Sim:
         if timelimit is None and stopping_func is None:
             super().run(until=None if until is None else self.t.timevec[until-1], verbose=verbose, **kwargs)
         else: # Run one step at a time to check whether to stop; as in v3, the sim isn't finalized if it stops early
-            if not self.initialized:
-                self.init()
             T = sc.timer()
             until = self.npts if until is None else until
             while self.ti < until and not self.complete:
@@ -308,6 +407,16 @@ class V3Sim:
         if do_plot:
             self.plot()
         return self
+
+    def finalize(self):
+        ''' v3: restore the COVID parameters changed by interventions, if run(restore_pars=True) '''
+        super().finalize()
+        orig_pars = getattr(self, '_orig_pars', None)
+        if orig_pars is not None:
+            for key,val in orig_pars.items():
+                self.diseases.covid.pars[key] = val
+            self._orig_pars = None
+        return
 
     def initialize(self, *args, reset=False, **kwargs):
         ''' v3: initialize the sim (use init() in v4); if already initialized, reset=True recreates it from its original state '''
@@ -333,7 +442,10 @@ class V3Sim:
     def shrink(self, skip_attrs=None, in_place=True, inplace=None, **kwargs):
         ''' v3: in_place rather than inplace; skip_attrs is ignored '''
         kwargs.setdefault('die', False) # v3 never raised an error on shrinking
-        return super().shrink(inplace=in_place if inplace is None else inplace, **kwargs)
+        kwargs.setdefault('base_size', 150) # Starsim's default allows 30 KB per module, but the COVID module has about 100 KB of parameters and distributions
+        sim = super().shrink(inplace=in_place if inplace is None else inplace, **kwargs)
+        sim._orig_sim = None # Remove the copy of the sim before it was initialized, which includes the people if supplied
+        return sim
 
     def summarize(self, how='last', full=None, t=None, sep=None, output=None):
         ''' v3: the summary is the final value of each result, and keys can omit the "covid_" prefix; the other v3 arguments are ignored '''
@@ -363,6 +475,25 @@ class V3Sim:
             sc.savejson(filename=filename, obj=output, indent=indent, *args, **kwargs)
         return output
 
+    def to_df(self, date_index=False, **kwargs):
+        ''' v3: the results as a dataframe, including the columns "t" and "date", and the COVID results named as in v3 (e.g. "cum_infections") '''
+        df = super().to_df(**kwargs)
+        cols = list(df.columns)
+        dups = [col for col in cols if col.startswith('variant_') or (col.startswith('covid_') and col.removeprefix('covid_') in cols)]
+        df = df.drop(columns=dups) # Remove duplicates of the COVID results, e.g. "covid_cum_infections" (same as "cum_infections")
+        df.insert(0, 't', self.tvec)
+        df.insert(1, 'date', self.datevec)
+        if date_index:
+            df = df.set_index('date')
+        return df
+
+    def to_json(self, *args, **kwargs):
+        ''' v3: the parameters are stored as "parameters" rather than "pars" '''
+        out = super().to_json(*args, **kwargs)
+        if isinstance(out, dict) and 'pars' in out:
+            out['parameters'] = out.pop('pars')
+        return out
+
 
 class V3Summary(sc.objdict):
     ''' v3: the summary, with keys such as summary['cum_infections'] as well as the v4 summary['covid_cum_infections'] '''
@@ -386,7 +517,12 @@ class V3People:
     In v3, the disease states (e.g. ``people.exposed``) were stored on People; in v4 they are on
     the COVID module (``sim.diseases.covid.exposed``), so they are looked up there. v3 dates (e.g.
     ``people.date_infectious``) are the v4 time indices (``ti_infectious``), since the timestep
-    is one day. As in v4, indexing uses UIDs, e.g. ``people.age[cv.true(people.exposed)]``.
+    is one day.
+
+    As in v3, these per-agent arrays (and ``people.age``, ``people.sex`` and ``people.dead``) cover
+    every agent ever created, including those who have died, so the index is the UID: e.g.
+    ``sc.findinds(people.dead)`` returns UIDs. In Starsim, states only include agents who are alive;
+    use ``people.states`` or the COVID module (e.g. ``sim.diseases.covid.dead``) for these.
     '''
 
     def _v3_covid(self):
@@ -395,22 +531,47 @@ class V3People:
         diseases = getattr(sim, 'diseases', None) if sim is not None else None
         return diseases.get('covid') if diseases is not None else None
 
+    def _v3_all(self, state):
+        ''' v3: a view of the state over all agents ever created, alive or dead, rather than only those alive (as ss.Filter does for a subset) '''
+        if not self.initialized: # Before initialization, there are no agents yet
+            return state
+        view = object.__new__(state.__class__)
+        view.__dict__ = state.__dict__.copy() # Shares the values, so setting them changes the state
+        view.people = sc.objdict(auids=self.indices()) # Every agent counts as active
+        return view
+
     def __getattr__(self, key):
         ''' v3: states such as people.exposed and people.date_exposed; only called if normal attribute lookup fails '''
         covid = self._v3_covid()
         if covid is not None and not key.startswith('_'):
             if key.startswith('date_') and hasattr(covid, 'ti_' + key[5:]): # e.g. date_exposed -> ti_exposed
-                return getattr(covid, 'ti_' + key[5:])
+                return self._v3_all(getattr(covid, 'ti_' + key[5:]))
             state = getattr(covid, key, None)
             if isinstance(state, ss.Arr):
-                return state
+                return self._v3_all(state)
         errormsg = f"'{self.__class__.__name__}' object has no attribute '{key}'"
         raise AttributeError(errormsg)
 
     @property
+    def age(self):
+        ''' v3: the age of every agent ever created, including those who have died (the Starsim state is people.states['age']) '''
+        return self._v3_all(self.__dict__['age'])
+
+    @age.setter
+    def age(self, value):
+        ''' Starsim sets the state as an attribute when People is created '''
+        self.__dict__['age'] = value
+
+    @property
+    def dead(self):
+        ''' v3: whether each agent ever created has died (in Starsim, ~people.alive, which only includes agents who are alive) '''
+        return self._v3_all(~self.alive)
+
+    @property
     def sex(self):
         ''' v3: sex as an integer array, 0 for female and 1 for male '''
-        return self.female.asnew((~self.female).values.astype(int))
+        female = self._v3_all(self.female)
+        return female.asnew((~female).values.astype(int))
 
     def true(self, key):
         ''' v3: the UIDs of people for whom this state is true '''
@@ -440,6 +601,11 @@ class V3People:
         ''' v3: the keys of the contact layers (i.e., networks) '''
         return list(self.sim.networks.keys())
 
+    @property
+    def contacts(self):
+        ''' v3: the contact layers, i.e. the sim's networks, e.g. people.contacts['h']; see cv.Contacts '''
+        return cvb.Contacts.from_sim(self.sim)
+
     def keys(self):
         ''' v3: the names of all the per-agent states, including the COVID ones '''
         covid = self._v3_covid()
@@ -460,9 +626,17 @@ class V3People:
         from . import analysis as cva # Here to avoid a circular import
         return cva.make_infection_log(self.sim)
 
+    def test(self, inds, test_sensitivity=1.0, loss_prob=0.0, test_delay=0):
+        ''' v3: test the specified people; see cv.COVID.test() '''
+        return self._v3_covid().test(inds, test_sensitivity=test_sensitivity, loss_prob=loss_prob, test_delay=test_delay)
+
+    def schedule_quarantine(self, inds, start_date=None, period=None):
+        ''' v3: schedule a quarantine for the specified people; see cv.COVID.schedule_quarantine() '''
+        return self._v3_covid().schedule_quarantine(inds, start_date=start_date, period=period)
+
     def indices(self):
-        ''' v3: the indices (UIDs) of the agents '''
-        return self.auids
+        ''' v3: the indices (UIDs) of all agents ever created, including those who have died '''
+        return self.uid.raw[:self.n_uids].view(ss.uids)
 
     def story(self, uid, *args):
         '''

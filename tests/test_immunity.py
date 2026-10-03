@@ -259,7 +259,7 @@ def test_vaccine_target_eff():
             return
 
         def apply(self, sim):
-            if sim.t == self.day:
+            if sim.ti == self.day:
                 eligible = cv.true(~np.isfinite(sim.people.date_exposed) & ~sim.people.vaccinated)
                 self.placebo_inds = eligible[cv.choose(len(eligible), min(self.trial_size, len(eligible)))]
             return
@@ -279,7 +279,7 @@ def test_vaccine_target_eff():
 
     def subtarget(sim):
         ''' Select people who are susceptible '''
-        if sim.t == start_trial:
+        if sim.ti == start_trial:
             eligible = cv.true(~np.isfinite(sim.people.date_exposed))
             inds = eligible[cv.choose(len(eligible), min(trial_size // 2, len(eligible)))]
         else:

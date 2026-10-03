@@ -51,20 +51,6 @@ def InterventionDict(which, pars):
     return intervention
 
 
-def _find_contacts(net, trace_uids):
-    """Return the UIDs that share an edge with any of ``trace_uids`` in network ``net`` (the v3
-    ``Layer.find_contacts``), via the network's edge list. Excludes the traced agents themselves."""
-    edges = net.edges
-    p1 = np.asarray(edges.p1)
-    p2 = np.asarray(edges.p2)
-    if not len(p1):
-        return ss.uids()
-    arr = np.asarray(trace_uids)
-    contacts = np.concatenate([p2[np.isin(p1, arr)], p1[np.isin(p2, arr)]])
-    contacts = np.setdiff1d(np.unique(contacts), arr)  # unique partners, excluding the index cases
-    return ss.uids(contacts)
-
-
 class Intervention(cvc.V3Module, ss.Intervention):
     """Base class for Covasim interventions (same public name as v3; thin over ``ss.Intervention``)."""
 
@@ -154,6 +140,7 @@ class BaseTest(Intervention):
         self.subtarget   = subtarget
         self.ili_prev    = ili_prev
         self.pdf         = cvu.get_pdf(**sc.mergedicts(swab_delay)) # If provided, get the distribution's pdf -- this returns an empty dict if None is supplied
+        self._choose_ili = ss.choose_n() # Who has influenza-like illness on each day
         return
 
     def init_post(self):
@@ -172,17 +159,9 @@ class BaseTest(Intervention):
         rel_t = self.ti - self.start_day
         if rel_t >= len(self.ili_prev):
             return np.array([], dtype=int)
-        alive = np.asarray(self.sim.people.auids)
-        n_ili = min(int(self.ili_prev[rel_t] * len(alive)), len(alive)) # Number with ILI symptoms on this day
-        rng = np.random.default_rng([self._seed(), 91, self.ti])
-        ili_inds = rng.choice(alive, size=n_ili, replace=False)
+        self._choose_ili.set(n=int(self.ili_prev[rel_t] * len(self.sim.people))) # Number with ILI symptoms on this day
+        ili_inds = self._choose_ili.filter()
         return np.setdiff1d(ili_inds, symp_inds)
-
-    def _seed(self):
-        try:
-            return int(self.sim.pars.rand_seed)
-        except Exception:
-            return 0
 
 
 class test_prob(BaseTest):
@@ -241,20 +220,25 @@ class test_prob(BaseTest):
             symp_prob[inds] = self.symp_prob/(1-symp_time[inds]*self.symp_prob)
             symp_prob = self.pdf.pdf(symp_time) * symp_prob * count[symp_time]
 
-        # Define the groups of people
-        ili_inds        = self._ili_inds(symp_inds)
-        asymp_inds      = np.setdiff1d(np.setdiff1d(alive, symp_inds), ili_inds)
-        quar_test_inds  = get_quar_inds(self.quar_policy, self.sim)
-        symp_quar_inds  = np.intersect1d(quar_test_inds, symp_inds)
-        asymp_quar_inds = np.intersect1d(quar_test_inds, asymp_inds)
+        # Define the groups of people, as boolean arrays by UID (much faster than set operations on the UIDs)
+        n = len(covid.symptomatic.raw)
+        ili_inds = self._ili_inds(symp_inds)
+        is_symp = np.zeros(n, dtype=bool)
+        is_symp[symp_inds] = True
+        is_asymp = np.zeros(n, dtype=bool)
+        is_asymp[alive] = True
+        is_asymp[symp_inds] = False
+        is_asymp[ili_inds] = False
+        is_quar_test = np.zeros(n, dtype=bool)
+        is_quar_test[get_quar_inds(self.quar_policy, self.sim)] = True
 
         # Assign testing probabilities by UID
-        test_probs = np.zeros(len(covid.symptomatic.raw))
-        test_probs[symp_inds]       = symp_prob            # People with symptoms (true positive)
-        test_probs[ili_inds]        = self.symp_prob       # People with symptoms (false positive) -- can't use swab delay since no date symptomatic
-        test_probs[asymp_inds]      = self.asymp_prob      # People without symptoms
-        test_probs[symp_quar_inds]  = self.symp_quar_prob  # People with symptoms in quarantine
-        test_probs[asymp_quar_inds] = self.asymp_quar_prob # People without symptoms in quarantine
+        test_probs = np.zeros(n)
+        test_probs[symp_inds] = symp_prob                                 # People with symptoms (true positive)
+        test_probs[ili_inds]  = self.symp_prob                            # People with symptoms (false positive) -- can't use swab delay since no date symptomatic
+        test_probs[is_asymp]  = self.asymp_prob                           # People without symptoms
+        test_probs[is_quar_test & is_symp]  = self.symp_quar_prob         # People with symptoms in quarantine
+        test_probs[is_quar_test & is_asymp] = self.asymp_quar_prob        # People without symptoms in quarantine
         if self.subtarget is not None:
             subtarget_inds, subtarget_vals = get_subtargets(self.subtarget, self.sim)
             test_probs[subtarget_inds] = subtarget_vals # People being explicitly subtargeted
@@ -300,6 +284,7 @@ class test_num(BaseTest):
         self.start_day   = start_day
         self.end_day     = end_day
         self._init_testing(quar_policy, subtarget, ili_prev, swab_delay)
+        self._choose_tests = ss.choose_n() # Who is tested
         return
 
     def init_post(self):
@@ -316,7 +301,7 @@ class test_num(BaseTest):
         rel_t = ti - self.start_day
         if rel_t >= len(self.daily_tests):
             return
-        n_tests = sc.randround(self.daily_tests[rel_t]/self.sim['pop_scale'])
+        n_tests = sc.randround(self.daily_tests[rel_t]/self.sim.current_scale)
         if not (n_tests and np.isfinite(n_tests)):
             return
 
@@ -345,16 +330,21 @@ class test_num(BaseTest):
             test_probs[subtarget_inds] = test_probs[subtarget_inds]*subtarget_vals
         test_probs[covid.diagnosed.uids] = 0.0
 
+        # With dynamic rescaling, correct for the uninfected people outside of the population who would test
+        n_requested = n_tests # As in v3, record the number of tests requested, which includes those outside the population
+        scale = self.sim.current_scale
+        pop_scale = self.sim.pars.pop_scale
+        if scale < pop_scale: # We still have rescaling to do
+            in_pop_tot_prob = test_probs.sum()*scale # Total "testing weight" of people in the subsampled population
+            out_pop_tot_prob = (pop_scale - scale)*len(self.sim.people) # Find out how many people are missing and assign them each weight 1
+            in_frac = in_pop_tot_prob/(in_pop_tot_prob + out_pop_tot_prob) # Fraction of tests which should fall in the sample population
+            n_tests = sc.randround(n_tests*in_frac) # Recompute the number of tests
+
         # Choose who tests, without replacement, weighted by the testing probabilities
-        eligible = test_probs.nonzero()[0]
-        n = min(n_tests, len(eligible)) # Don't try to test more people than have nonzero testing probability
-        if not n:
-            return
-        weights = test_probs[eligible]/test_probs[eligible].sum()
-        rng = np.random.default_rng([self._seed(), 90, ti])
-        chosen = ss.uids(np.sort(rng.choice(eligible, size=n, replace=False, p=weights)))
-        covid.test(chosen, test_sensitivity=self.sensitivity, loss_prob=self.loss_prob,
-                   test_delay=self.test_delay)
+        eligible = ss.uids(test_probs.nonzero()[0])
+        self._choose_tests.set(n=n_tests, weights=test_probs[eligible])
+        chosen = self._choose_tests.filter(eligible)
+        covid.test(chosen, test_sensitivity=self.sensitivity, loss_prob=self.loss_prob, test_delay=self.test_delay, n_tests=n_requested)
         return
 
 
@@ -388,6 +378,7 @@ class contact_tracing(Intervention):
         self.capacity    = capacity
         self.quar_period = quar_period
         self._trace = ss.bernoulli(p=1.0)  # per-contact trace draw (CRN)
+        self._choose_capacity = ss.choose_n() # Who is traced, if there are more index cases than the capacity
         return
 
     def _per_layer(self):
@@ -415,14 +406,10 @@ class contact_tracing(Intervention):
             trace = tested[np.asarray(covid.exposed[tested])] if len(tested) else tested
         if not len(trace):
             return
-        # Capacity limit on index cases traced per day.
-        if self.capacity is not None and len(trace) > self.capacity:
-            try:
-                base = int(self.sim.pars.rand_seed)
-            except Exception:
-                base = 0
-            rng = np.random.default_rng([base, 91, ti])
-            trace = ss.uids(np.sort(rng.choice(np.asarray(trace), int(self.capacity), replace=False)))
+        # If there is a tracing capacity constraint, limit the number of agents that can be traced
+        if self.capacity is not None:
+            self._choose_capacity.set(n=int(self.capacity/self.sim.current_scale)) # Convert capacity into a number of agents
+            trace = self._choose_capacity.filter(trace)
         trace_arr = np.asarray(trace)
         tp, tt = self._per_layer()
         for lkey, net in self.sim.networks.items():
@@ -430,7 +417,7 @@ class contact_tracing(Intervention):
             this_tt = int(tt.get(lkey, 0.0))
             if this_tp == 0:
                 continue
-            contacts = _find_contacts(net, trace_arr)
+            contacts = ss.uids(net.find_contacts(trace_arr))
             if not len(contacts):
                 continue
             self._trace.set(p=this_tp)
@@ -684,6 +671,7 @@ class vaccinate_num(BaseVaccination):
         self.sequence = sequence
         self._sequence = None
         self._scheduled = {}  # {day: set(uids)}
+        self._random_order = ss.random() # The order in which to vaccinate people, if no sequence is given
         return
 
     def init_post(self):
@@ -697,13 +685,7 @@ class vaccinate_num(BaseVaccination):
         covid = self._covid()
         alive = np.asarray(covid.sim.people.auids)
         if sequence is None:
-            try:
-                base = int(self.sim.pars.rand_seed)
-            except Exception:
-                base = 0
-            rng = np.random.default_rng([base, 92])
-            order = alive.copy(); rng.shuffle(order)
-            return order
+            return alive[np.argsort(self._random_order.rvs(ss.uids(alive)))]
         if sequence == 'age':
             ages = np.asarray(covid.sim.people.age[ss.uids(alive)])
             return alive[np.argsort(-ages)]
@@ -826,8 +808,7 @@ class simple_vaccine(Intervention):
         self._doses_by_this[va] += 1
         covid.vaccinated[vacc] = True
         covid.doses[vacc] = np.asarray(covid.doses[vacc]) + 1
-        covid._vacc_flow['doses'] += len(vacc)
-        covid._vacc_flow['vaccinated'] += int((~prior).sum())
+        covid.count_doses(vacc, prior)
         return
 
 
@@ -867,7 +848,7 @@ class historical_vaccinate_prob(vaccinate_prob):
         if not len(chosen):
             return
         self._doses[np.asarray(chosen)] += 1
-        covid.vaccinate_agents(chosen, self.label, self.index)  # sets vaccinated/source/doses/peak NAb
+        covid.vaccinate_agents(chosen, self.label, self.index, count=False)  # sets vaccinated/source/doses/peak NAb; as in v3, historical doses aren't counted
         covid.imprint_historical_nab(chosen, day)               # decay the peak NAb from `day` to t=0
         return
 
@@ -900,7 +881,7 @@ class historical_wave(Intervention):
         covid = self._covid()
         if not covid.pars.use_waning:
             raise RuntimeError('cv.historical_wave() requires use_waning=True.')
-        if getattr(self.sim, 'rescale', False) and self.sim['pop_scale'] > 1:
+        if self.sim.pars.rescale and (self.sim['pop_scale'] > 1):
             errormsg = 'cv.historical_wave() requires rescale=False, since rescaling assumes non-included agents are naive. Please disable dynamic rescaling.'
             raise RuntimeError(errormsg)
         mapping = {label:ind for ind,label in covid.variant_map.items()}
@@ -924,6 +905,7 @@ class historical_wave(Intervention):
         covid.infected[chosen]    = False
         covid.preinfectious[chosen] = False
         covid.recovered[chosen]   = True
+        covid.naive[chosen]       = False # As in v3, they have been infected
         covid.ti_recovered[chosen] = event_day
         covid.recovered_variant[chosen] = self.variant
         return
@@ -1058,7 +1040,9 @@ class clip_edges(Intervention):
         self.days = days
         self.changes = changes
         self.layers = layers
-        self._orig = None     # {layer: (p1, p2, beta) of the ORIGINAL full edge set}
+        self._orig = None     # {layer: the original edges, e.g. p1, p2, and beta}
+        self._order = None    # {layer: the order in which edges are removed}
+        self._edge_rng = ss.random() # Used to choose which edges are removed
         return
 
     def init_post(self):
@@ -1068,9 +1052,12 @@ class clip_edges(Intervention):
         nets = self.sim.networks
         self.layers = list(nets.keys()) if self.layers is None else sc.tolist(self.layers)
         self._orig = {}
-        for lk in self.layers:
-            e = nets[lk].edges
-            self._orig[lk] = (np.array(e.p1), np.array(e.p2), np.array(e.beta))
+        self._order = {}
+        n_edges = [len(nets[lk]) for lk in self.layers]
+        rands = np.split(self._edge_rng.rvs(sum(n_edges)), np.cumsum(n_edges)[:-1]) # One random number per edge, split by layer
+        for lk, layer_rands in zip(self.layers, rands):
+            self._orig[lk] = {key:val.copy() for key,val in nets[lk].edges.items()}
+            self._order[lk] = np.argsort(layer_rands) # Edges are kept in this order, so e.g. the edges kept at 30% are a subset of those kept at 70%
         return
 
     def step(self):
@@ -1080,22 +1067,22 @@ class clip_edges(Intervention):
             return
         keep = self.changes[inds[0]]
         nets = self.sim.networks
-        try:
-            base = int(self.sim.pars.rand_seed)
-        except Exception:
-            base = 0
-        for li, lk in enumerate(self.layers):
-            p1, p2, beta = self._orig[lk]
-            n = len(p1)
-            if not n:
-                continue
-            n_keep = int(round(keep * n))
-            rng = np.random.default_rng([base, 93, ti, li])
-            sel = np.sort(rng.choice(n, size=n_keep, replace=False)) if n_keep < n else np.arange(n)
+        alive = self.sim.people.alive.raw
+        for lk in self.layers:
+            orig = self._orig[lk]
+            n_keep = int(round(keep * len(orig['p1'])))
+            sel = np.sort(self._order[lk][:n_keep])
+            sel = sel[alive[orig['p1'][sel]] & alive[orig['p2'][sel]]] # Don't restore the edges of agents who have died
             edges = nets[lk].edges
-            edges.p1 = ss.uids(p1[sel])
-            edges.p2 = ss.uids(p2[sel])
-            edges.beta = beta[sel]
+            for key,val in orig.items():
+                edges[key] = val[sel]
+        return
+
+    def shrink(self):
+        ''' Remove the copies of the original edges, for saving '''
+        super().shrink()
+        self._orig = None
+        self._order = None
         return
 
 
@@ -1162,7 +1149,8 @@ class sequence(Intervention):
 
     def init_pre(self, sim):
         super().init_pre(sim)
-        for intv in self.interventions:  # initialise the child interventions
+        for i,intv in enumerate(self.interventions):  # initialise the child interventions
+            intv.name = f'{self.name}_{i}_{intv.name}' # The children aren't in sim.interventions, so give them unique names here (e.g. not "sequence_1", the name of a second sequence)
             intv.init_pre(sim)
         return
 
@@ -1172,9 +1160,27 @@ class sequence(Intervention):
             intv.init_post()
         return
 
+    def start_step(self):
+        super().start_step()
+        for intv in self.interventions: # The children aren't in the integration loop, so advance their random numbers here
+            intv.start_step()
+        return
+
     def step(self):
         ti = self.ti
         active = [i for i, d in enumerate(self.days) if d <= ti]  # most recently activated
         if active:
             self.interventions[active[-1]].step()
+        return
+
+    def finish_step(self):
+        super().finish_step()
+        for intv in self.interventions: # Likewise, advance their time index
+            intv.finish_step()
+        return
+
+    def finalize(self):
+        super().finalize()
+        for intv in self.interventions:
+            intv.finalize()
         return

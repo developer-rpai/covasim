@@ -41,6 +41,16 @@ def test_epidemic_grows():
     # With beta=0.016/contact and ~20 contacts/day the epidemic should grow well beyond the seed.
     assert _cum_infections(sim) > 50
 
+    # As in v3, the per-agent arrays on sim.people include the agents who have died, indexed by UID
+    ppl = sim.people
+    n_dead = sim.summary['cum_deaths']
+    assert n_dead > 0 # Agents have died
+    assert len(ppl) == 5000 - n_dead # Starsim: len(people) is the number alive
+    for arr in [ppl.age, ppl.dead, ppl.date_dead]:
+        assert len(arr) == 5000 # v3: arrays cover all agents ever created
+    assert ppl.dead.sum() == n_dead # v3: people.dead counts the agents who have died
+    assert np.array_equal(cv.true(ppl.dead), np.nonzero(sim.diseases.covid.dead.raw[:5000])[0]) # Indices are UIDs, as in v3
+
 
 def test_unsupported_pop_type_raises():
     with pytest.raises(ValueError):
@@ -60,9 +70,9 @@ def test_pop_scale_scales_extensive_results():
 
     Same seed -> identical agent-level dynamics, only the result scaling differs.
     """
-    base = cv.Sim(pop_size=10_000, pop_infected=20, pop_type='random', n_days=60, rand_seed=1)
+    base = cv.Sim(pop_size=10_000, pop_infected=20, pop_type='random', n_days=60, rand_seed=1, rescale=False)
     base.run()
-    scaled = cv.Sim(pop_size=10_000, pop_infected=20, pop_type='random', n_days=60, rand_seed=1, pop_scale=10)
+    scaled = cv.Sim(pop_size=10_000, pop_infected=20, pop_type='random', n_days=60, rand_seed=1, pop_scale=10, rescale=False)
     scaled.run()
     rb, rs = base.diseases.covid.results, scaled.diseases.covid.results
     cum_b = float(np.asarray(rb['cum_infections']).max())
@@ -71,6 +81,17 @@ def test_pop_scale_scales_extensive_results():
     prev_b = float(np.asarray(rb['prevalence']).max())
     prev_s = float(np.asarray(rs['prevalence']).max())
     assert prev_s == pytest.approx(prev_b, rel=1e-6), 'intensive results (prevalence) must be unchanged by pop_scale'
+
+
+def test_dynamic_rescaling():
+    """With dynamic rescaling, the scale rises from 1 to pop_scale, giving a similar epidemic to a full-sized population"""
+    full = cv.Sim(pop_size=50_000, pop_infected=100, n_days=60, rand_seed=1, verbose=0).run()
+    scaled = cv.Sim(pop_size=5_000, pop_infected=100, n_days=60, rand_seed=1, verbose=0, pop_scale=10, rescale=True).run()
+    scale = scaled.rescale_vec
+    assert scale[0] == 1 and scale[-1] == 10, f'the scale should rise from 1 to 10, not {scale[0]} to {scale[-1]}'
+    cum_f = full.results['cum_infections'][-1]
+    cum_s = scaled.results['cum_infections'][-1]
+    assert cum_s == pytest.approx(cum_f, rel=0.1), f'cumulative infections should be similar with dynamic rescaling ({cum_s} vs. {cum_f})'
 
 
 def test_deterministic_same_seed():

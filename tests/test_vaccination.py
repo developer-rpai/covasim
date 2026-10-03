@@ -98,8 +98,8 @@ def test_vaccine_per_variant_efficacy():
     beta_i = [i for i, l in d.variant_map.items() if l == 'beta'][0]
     vacc = d.vaccinated.uids
     assert len(vacc) > 0
-    sus_wild = np.asarray(d.sus_imm[wild_i])[np.asarray(vacc)]
-    sus_beta = np.asarray(d.sus_imm[beta_i])[np.asarray(vacc)]
+    sus_wild = d.sus_imm[vacc, wild_i]
+    sus_beta = d.sus_imm[vacc, beta_i]
     assert sus_wild.mean() > sus_beta.mean(), \
         f'pfizer should protect vaccinated agents more vs wild than beta: wild={sus_wild.mean():.3f} beta={sus_beta.mean():.3f}'
 

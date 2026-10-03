@@ -22,7 +22,7 @@ from .utils         import * # Depends on defaults
 from .plotting      import * # Depends on defaults, misc
 from .base          import * # Depends on utils, defaults
 from .population    import * # Depends on utils, defaults
-from .network       import * # Depends on population
+from .network       import * # Depends on parameters
 from .covid         import * # Depends on parameters, immunity
 from .immunity      import * # Depends on parameters
 from .connectors    import * # Depends on immunity

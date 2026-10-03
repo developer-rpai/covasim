@@ -17,14 +17,14 @@ from . import plotting as cvplt
 __all__ = ['People']
 
 
-def _default_age_data():
-    """Covasim's default age pyramid as the Nx2 [age_lower_edge, value] array ss.People expects.
+def convert_age_data(age_data):
+    """Convert a v3 Nx3 [age_min, age_max, fraction] age table to the Nx2 [age_lower_edge, value] array ss.People expects.
 
-    ``defaults.default_age_data`` is an Nx3 [age_min, age_max, fraction] table; ss.People's
-    ``get_age_dist`` reads ages as lower bin edges + a value column, so drop age_max.
+    ss.People reads the ages as lower bin edges, so the upper edge of the last bin is added as
+    a final row with a value of 0. As in v3, ages are uniform within [age_min, age_max+1).
     """
-    d = np.asarray(cvd.default_age_data, dtype=float)
-    return np.c_[d[:, 0], d[:, 2]]
+    d = np.asarray(age_data, dtype=float)
+    return np.vstack([d[:, [0, 2]], [d[-1, 1] + 1, 0]])
 
 
 class People(cvc.V3People, ss.People):
@@ -38,7 +38,7 @@ class People(cvc.V3People, ss.People):
 
     def __init__(self, n_agents, age_data=None, **kwargs):
         if age_data is None:
-            age_data = _default_age_data()
+            age_data = convert_age_data(cvd.default_age_data)
         super().__init__(n_agents, age_data=age_data, **kwargs)
         return
 

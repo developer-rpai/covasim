@@ -99,7 +99,8 @@ class Sim(cvc.V3Sim, ss.Sim):
                 pars[key] = v3.pop(key)
         self.timelimit     = get('timelimit')
         self.stopping_func = get('stopping_func')
-        rescale_pars = {key:get(key) for key in ['rescale', 'rescale_threshold', 'rescale_factor', 'frac_susceptible']} # Dynamic rescaling is not yet implemented
+        for key in ['rescale', 'rescale_threshold', 'rescale_factor']: # Dynamic rescaling, done by Starsim
+            pars[key] = get(key)
         if end_day is not None: # As in v3, an end_day takes precedence over n_days
             n_days = int(sc.daydiff(start_day, end_day))
         if pop_type not in ['random', 'hybrid']:
@@ -112,6 +113,7 @@ class Sim(cvc.V3Sim, ss.Sim):
             if key in v3:
                 layer_pars[key] = v3.pop(key)
         cvpar.reset_layer_pars(layer_pars)
+        self.dynam_layer = layer_pars['dynam_layer'] # Which networks are recreated on each timestep (applied in init())
 
         # Location-specific data: the age distribution, and the household size. The People are created when the
         # sim is initialized (so pop_size can still be changed).
@@ -119,9 +121,7 @@ class Sim(cvc.V3Sim, ss.Sim):
         if location is not None:
             sc.printv(f'Loading location-specific data for "{location}"', 1, verbose)
             try:
-                # get_age_distribution returns an Nx3 [age_min, age_max, fraction] table; ss.People wants Nx2 [age_lower_edge, value]
-                raw = np.asarray(cvdata.get_age_distribution(location), dtype=float)
-                self._age_data = raw[:, [0, 2]]
+                self._age_data = cvppl.convert_age_data(cvdata.get_age_distribution(location))
             except ValueError as E:
                 cvm.warn(f'Could not load age data for requested location "{location}" ({str(E)}), using default')
             try:
@@ -143,7 +143,7 @@ class Sim(cvc.V3Sim, ss.Sim):
         # The COVID disease: the remaining v3 parameters, plus any others that are COVID parameters (e.g. dur_exp2inf)
         diseases = pars.pop('diseases', None)
         if diseases is None:
-            diseases = cvcov.COVID(init_prev=pop_infected, variants=variants, use_waning=use_waning,
+            diseases = cvcov.COVID(init_prev=ss.choose_n(pop_infected), variants=variants, use_waning=use_waning,
                                    beta_layer=layer_pars['beta_layer'], iso_factor=layer_pars['iso_factor'], quar_factor=layer_pars['quar_factor'])
             if 'dur' in v3:
                 v3.update(cvcov.v3_durs(v3.pop('dur')))
@@ -173,8 +173,6 @@ class Sim(cvc.V3Sim, ss.Sim):
                          rand_seed=rand_seed, verbose=verbose)
         self.pop_type = pop_type
         self.simfile = simfile
-        for key,val in rescale_pars.items():
-            setattr(self, key, val)
 
         # Report Covasim's version and git info (v3 sim.version / sim.git_info), not Starsim's
         self.version = cvv.__version__
@@ -186,7 +184,7 @@ class Sim(cvc.V3Sim, ss.Sim):
         # Optional data to fit against, read into ``self.data`` for ``cv.Fit`` / ``sim.compute_fit``
         self.data = None
         if datafile is not None:
-            self.data = datafile if hasattr(datafile, 'columns') else cvm.load_data(datafile)
+            self.data = cvm.load_data(datafile) # Also for a dataframe, e.g. to add the cumulative columns, as in v3
         return
 
     def init(self, *args, **kwargs):
@@ -197,6 +195,8 @@ class Sim(cvc.V3Sim, ss.Sim):
                 self._orig_sim = sc.dumpstr(self)
             except Exception: # E.g. if a user-defined object can't be pickled; then the sim can't be reset
                 self._orig_sim = None
+        if not self.initialized:
+            self.set_seed() # As in v3, seed the global random number generators, for user code that uses them
         if self.pars.n_agents < 0:
             errormsg = f'Population size cannot be negative ({self.pars.n_agents})'
             raise ValueError(errormsg)
@@ -207,7 +207,12 @@ class Sim(cvc.V3Sim, ss.Sim):
             ivs = [ivs]
         if isinstance(ivs, list):
             self.pars.interventions = [cvi.InterventionDict(**iv) if isinstance(iv, dict) else iv for iv in ivs]
-        return super().init(*args, **kwargs)
+        super().init(*args, **kwargs)
+        for key,dynamic in self.dynam_layer.items(): # v3 dynamic layers are networks that are recreated on each timestep
+            if dynamic and key in self.networks:
+                self.networks[key].pars.dynamic = True
+        self.reset_layer_pars() # As in v3, use the default per-layer parameters (e.g. iso_factor) for any networks that don't have them, e.g. user-supplied ones
+        return self
 
     def day(self, day, *args):
         """Convert date(s) to integer day index/indices relative to ``start_day`` (v3 ``Sim.day``).
@@ -232,45 +237,91 @@ class Sim(cvc.V3Sim, ss.Sim):
         kwargs.setdefault('as_date', False) # v3 returns date strings
         return sc.date(*args, start_date=self['start_day'], **kwargs)
 
-    def get_analyzers(self, label=None):
-        """Return the list of analyzers matching ``label`` (a label, class, or index), or all; v3 ``Sim.get_analyzers``."""
-        analyzers = list(self.analyzers.values()) if self.initialized else sc.tolist(self.pars.analyzers) # v3: available before initialization
-        if label is None:
-            return analyzers
-        if isinstance(label, (int, np.integer)):
-            return [analyzers[label]]
-        if isinstance(label, type):
-            return [a for a in analyzers if isinstance(a, label)]
-        return [a for a in analyzers if getattr(a, 'label', None) == label or a.name == label]
+    def _get_ia(self, which, label=None, partial=False, as_list=False, as_inds=False, die=True, first=False):
+        """Helper method for get_interventions() and get_analyzers(); see get_interventions()"""
+        if (not self.initialized) or self._is_v3_saved(): # v3: available before initialization; also, a sim saved by v3 stores them in its parameters
+            ia_list = [ia for ia in sc.tolist(self.pars[which]) if not isinstance(ia, dict)]
+        else:
+            ia_list = list(getattr(self, which).values())
+        n_ia = len(ia_list)
+        if label is None: # Get all of them
+            label = list(range(n_ia))
+        labels = sc.tolist(label.tolist() if isinstance(label, np.ndarray) else label)
 
-    def get_analyzer(self, label=None, die=True):
-        """Return a single analyzer matching ``label`` (or the sole analyzer); v3 ``Sim.get_analyzer``."""
-        matches = self.get_analyzers(label)
-        if matches:
-            return matches[-1]
-        if die:
-            raise ValueError(f'No analyzer found matching {label!r}.')
+        # Calculate the matches
+        matches = []
+        match_inds = []
+        for label in labels:
+            if sc.isnumber(label):
+                matches.append(ia_list[label]) # This will raise an exception if an invalid index is given
+                match_inds.append(n_ia + label if label < 0 else label)
+            elif sc.isstring(label) or isinstance(label, type):
+                for ind,ia_obj in enumerate(ia_list):
+                    if isinstance(label, type):
+                        is_match = isinstance(ia_obj, label)
+                    else:
+                        is_match = label in [ia_obj.label, ia_obj.name] or (partial and label in str(ia_obj.label))
+                    if is_match:
+                        matches.append(ia_obj)
+                        match_inds.append(ind)
+            else:
+                errormsg = f'Could not interpret label type "{type(label)}": should be str, int, list, or {which} class'
+                raise TypeError(errormsg)
+
+        # Parse the output options
+        if as_inds:
+            return match_inds
+        elif as_list:
+            return matches
+        elif len(matches):
+            return matches[0 if first else -1]
+        elif die:
+            errormsg = f'No {which} matching "{label}" were found'
+            raise ValueError(errormsg)
         return None
 
-    def get_interventions(self, label=None):
-        """Return the list of interventions matching ``label`` (a label, class, or index), or all; v3 ``Sim.get_interventions``."""
-        ivs = list(self.interventions.values()) if self.initialized else [iv for iv in sc.tolist(self.pars.interventions) if not isinstance(iv, dict)] # v3: available before initialization
-        if label is None:
-            return ivs
-        if isinstance(label, (int, np.integer)):
-            return [ivs[label]]
-        if isinstance(label, type):
-            return [iv for iv in ivs if isinstance(iv, label)]
-        return [iv for iv in ivs if getattr(iv, 'label', None) == label or iv.name == label]
+    def get_interventions(self, label=None, partial=False, as_inds=False):
+        """
+        Find the matching intervention(s) by label, index, or type (the v3 ``Sim.get_interventions``).
+        If None, return all interventions.
 
-    def get_intervention(self, label=None, die=True):
-        """Return a single intervention matching ``label``/class (or the sole one); v3 ``Sim.get_intervention``."""
-        matches = self.get_interventions(label)
-        if matches:
-            return matches[-1]
-        if die:
-            raise ValueError(f'No intervention found matching {label!r}.')
-        return None
+        Args:
+            label (str, int, Intervention, list): the label, index, or type of intervention to get; if a list, iterate over one of those types
+            partial (bool): if true, return partial matches (e.g. 'beta' will match all beta interventions)
+            as_inds (bool): if true, return matching indices instead of the actual interventions
+
+        **Examples**::
+
+            tp = cv.test_prob(symp_prob=0.1)
+            cb1 = cv.change_beta(days=5, changes=0.3, label='NPI')
+            cb2 = cv.change_beta(days=10, changes=0.3, label='Masks')
+            sim = cv.Sim(interventions=[tp, cb1, cb2])
+            cb1, cb2 = sim.get_interventions(cv.change_beta)
+            tp, cb2 = sim.get_interventions([0,2])
+            ind = sim.get_interventions(cv.change_beta, as_inds=True) # Returns [1,2]
+        """
+        return self._get_ia('interventions', label=label, partial=partial, as_inds=as_inds, as_list=True)
+
+    def get_intervention(self, label=None, partial=False, first=False, die=True):
+        """
+        Find the matching intervention by label, index, or type (the v3 ``Sim.get_intervention``). If more than
+        one intervention matches, return the last by default. If no label is provided, return the last intervention.
+
+        Args:
+            label (str, int, Intervention): the label, index, or type of intervention to get
+            partial (bool): if true, return partial matches (e.g. 'beta' will match all beta interventions)
+            first (bool): if true, return first matching intervention (otherwise, return last)
+            die (bool): whether to raise an exception if no intervention is found
+        """
+        return self._get_ia('interventions', label=label, partial=partial, first=first, die=die, as_inds=False, as_list=False)
+
+    def get_analyzers(self, label=None, partial=False, as_inds=False):
+        """Same as get_interventions(), but for analyzers (the v3 ``Sim.get_analyzers``)."""
+        return self._get_ia('analyzers', label=label, partial=partial, as_list=True, as_inds=as_inds)
+
+    def get_analyzer(self, label=None, partial=False, first=False, die=True):
+        """Same as get_intervention(), but for analyzers (the v3 ``Sim.get_analyzer``)."""
+        return self._get_ia('analyzers', label=label, partial=partial, first=first, die=die, as_inds=False, as_list=False)
 
     def compute_fit(self, *args, **kwargs):
         """Compute the goodness-of-fit against ``self.data`` (v3 ``Sim.compute_fit``); returns a ``cv.Fit``."""
@@ -435,12 +486,37 @@ class Sim(cvc.V3Sim, ss.Sim):
             sc.savejson(filename, pars, indent=indent)
         return pars
 
-    def finalize(self):
-        """Finalize, then make the COVID results available at the top level, as in v3 (e.g. ``sim.results['cum_deaths']``)."""
-        super().finalize()
+    def init_results(self):
+        """
+        Initialize the results, then make the COVID results available at the top level, as in v3, e.g.
+        ``sim.results['cum_deaths']`` and ``sim.results['variant']['new_infections_by_variant']``. These are
+        references to the module's results (not copies).
+        """
+        super().init_results()
+        self._bridged_keys = []
         covid = self.diseases.get('covid')
-        if covid is not None:
-            self._finalize_variant_bridge(covid, covid.results['variant'])
+        if covid is None:
+            return
+        variant = ss.Results(module=self.label)
+        for key, res in covid.results.items():
+            if key.endswith('_by_variant'):
+                variant[key] = res
+            elif isinstance(res, ss.Result) and key not in self.results:
+                self.results[key] = res
+                self._bridged_keys.append(key)
+        self.results['variant'] = variant
+        self.results['date'] = self.results['timevec'] # v3 also had the time keys "date" and "t"
+        self.results['t'] = np.arange(self.t.npts)
+        self._bridged_keys += ['variant', 'date', 't']
+        return
+
+    def finalize_results(self):
+        """Scale the results, skipping the references to the COVID results, which are scaled by the module"""
+        bridged = {key:self.results.pop(key) for key in self._bridged_keys}
+        try:
+            super().finalize_results()
+        finally: # Restore them even if finalizing fails (e.g. if the sim has already been finalized)
+            self.results.update(bridged)
         return
 
     def save(self, filename=None, keep_people=None, shrink=None, **kwargs):
@@ -602,29 +678,6 @@ class Sim(cvc.V3Sim, ss.Sim):
         calib = cva.Calibration(sim=self, calib_pars=calib_pars, **kwargs)
         calib.calibrate()
         return calib
-
-    def _finalize_variant_bridge(self, covid, vres):
-        """Attach the variant + flat result bridges at the sim top level (helper for finalize)."""
-        # Bridge to the v3 top-level path so sim.results['variant'][key] / sim.results['n_imports'] work.
-        self.results['variant'] = vres
-        if 'n_imports' in covid.results:
-            self.results['n_imports'] = covid.results['n_imports']
-
-        # Flat aggregate-results bridge: reference every top-level Result of the covid
-        # module at the sim root, so v3-style sim.results['cum_deaths'] etc. resolve (used by cv.Fit /
-        # cv.Calibration). Additive -- references, no dynamics change. The nested 'variant' sub-dict is
-        # already bridged above; skip it here.
-        for key, res in covid.results.items():
-            if isinstance(res, ss.Result) and key not in self.results:
-                self.results[key] = res
-
-        # v3 exposed time keys ``date`` and ``t`` (Starsim only provides ``timevec``); aliases for
-        # plotting against dates / day indices. References / derived arrays -- no dynamics change.
-        if 'timevec' in self.results and 'date' not in self.results:
-            self.results['date'] = self.results['timevec']
-        if 't' not in self.results:
-            self.results['t'] = np.arange(self.t.npts)
-        return
 
 
 def demo(preset=None, to_plot=None, scens=None, run_args=None, plot_args=None, **kwargs):

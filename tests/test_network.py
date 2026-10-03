@@ -1,6 +1,6 @@
-"""Contact-structure tests for cv.Network (structural checks + v3.1.8 equivalence).
+"""Contact-structure tests for the Covasim networks (structural checks + v3.1.8 equivalence).
 
-Builds cv.Network instances (random single-layer 'a' and the four hybrid layers
+Builds the networks (random single-layer 'a' and the four hybrid layers
 h/s/w/c) on a properly-aged ss.People and asserts per-layer degree and age-window
 structure. The v3.1.8 EQUIVALENCE half (vs a gitignored baseline) lives in
 test_contact_structure_equivalence and skips cleanly when the baseline is absent.

@@ -54,6 +54,7 @@ class variant(sc.prettyobj):
         self.label     = None  # variant key (dict label)
         self.p         = None  # the 5 per-variant parameters
         self._days     = None  # int day-index set, resolved in initialize()
+        self.choose_imports = ss.choose_n() # Who to infect on each introduction day
         self.parse(variant=variant, label=label)
         self.initialized = False
         return
@@ -114,19 +115,13 @@ class variant(sc.prettyobj):
         susc = covid.susceptible.uids
         if not len(susc):
             return
-        # Rescale the number of imported *agents* by pop_scale (v3 divides by rescale_vec).
-        factor = float(covid.sim.pars.pop_scale) if self.rescale else 1.0
+        # Rescale the number of imported agents by the current population scale (as in v3)
+        factor = covid.sim.current_scale if self.rescale else 1.0
         n = sc.randround(self.n_imports / factor) if factor != 1.0 else self.n_imports
-        n = int(min(n, len(susc)))
         if n <= 0:
             return
-        # Deterministic per-(seed, variant, day) susceptible draw (CRN-friendly, reproducible).
-        try:
-            base = int(covid.sim.pars.rand_seed)
-        except Exception:
-            base = 0
-        rng = np.random.default_rng([base, 80, int(self.index), ti])
-        chosen = ss.uids(np.sort(rng.choice(np.asarray(susc), size=n, replace=False)))
+        self.choose_imports.set(n=n)
+        chosen = self.choose_imports.filter(susc)
         covid.import_variant(chosen, variant=self.index)
         return
 

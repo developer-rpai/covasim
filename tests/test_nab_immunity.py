@@ -138,8 +138,8 @@ def test_waning_increases_reinfection_and_protection():
     s0 = _run(False)
     s1 = _run(True)
     d0, d1 = s0.diseases.covid, s1.diseases.covid
-    ci0 = float(np.asarray(d0.results['variant']['cum_infections_by_variant']).sum(axis=0)[-1])
-    ci1 = float(np.asarray(d1.results['variant']['cum_infections_by_variant']).sum(axis=0)[-1])
+    ci0 = float(np.asarray(d0.results['cum_infections_by_variant']).sum(axis=1)[-1])
+    ci1 = float(np.asarray(d1.results['cum_infections_by_variant']).sum(axis=1)[-1])
     assert ci1 > ci0, 'cum_infections higher with waning (reinfection)'
     assert float(np.asarray(d1.n_breakthroughs).sum()) > 0, 'breakthrough reinfections occur with waning'
     assert float(np.asarray(d0.n_breakthroughs).sum()) == 0, 'no reinfection without waning'
@@ -180,6 +180,6 @@ def test_connector_writes_calc_VE_under_waning():
     src_v = np.asarray(d.recovered_variant[rec]).astype(int)
     nab = np.asarray(d.nab[rec])
     expected = cvimm.calc_VE(nab * matrix[0, src_v], 'sus', d.pars.nab_eff)
-    assert np.allclose(d.sus_imm[0, ru], expected), 'sus_imm = calc_VE(nab × matrix) under waning'
+    assert np.allclose(d.sus_imm[ru, 0], expected), 'sus_imm = calc_VE(nab × matrix) under waning'
     # And it is NOT just the static matrix (NAb weighting actually reduces protection below the matrix).
-    assert np.any(d.sus_imm[0, ru] < matrix[0, src_v] - 1e-9), 'NAb weighting lowers protection below the raw matrix'
+    assert np.any(d.sus_imm[ru, 0] < matrix[0, src_v] - 1e-9), 'NAb weighting lowers protection below the raw matrix'

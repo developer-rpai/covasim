@@ -148,7 +148,7 @@ def test_sim_getitem():
     sim = cv.Sim(pop_size=3000, pop_infected=30, pop_type='hybrid', start_day='2020-03-01', n_days=15,
                  verbose=0)
     sim.run()
-    assert abs(sim['beta'] - 0.016) < 1e-9 and sim['start_day'] == '2020-03-01' and sim['n_days'] == 15
+    assert abs(sim['beta'] - 0.016) < 1e-9 and str(sim['start_day']) == '2020-03-01' and sim['n_days'] == 15
     assert sim['rel_death_prob'] == 1.0         # a COVID parameter
     assert sim['beta_layer']['h'] == 3.0        # a per-layer parameter
 

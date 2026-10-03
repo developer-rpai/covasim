@@ -3,13 +3,13 @@
 Covers the per-variant machinery on the single cv.COVID module (with nv==1 identical to a
 single-variant run):
 
-  - the 12-key 2D by_variant results sub-dict exists with the right shape/dtype;
+  - the 12 2D by-variant results exist with the right shape/dtype;
   - at nv==1, the by_variant[0] stocks equal the aggregate stocks (the
     "results for free" invariant);
   - the scalar *_variant tags follow their lifecycle (set when exposed/infectious,
     rolled to recovered_variant on recovery, cleared on death);
   - the 2D immunity arrays are allocated and all-zero (no effect at nv==1);
-  - births are rejected (the arrays are not growth-aware);
+  - births are supported (the immunity arrays grow with the population);
   - the infect() override, variant registration and mid-run variant imports;
   - the cv.CrossImmunity connector, reinfection and host exclusivity.
 """
@@ -45,16 +45,17 @@ BY_VARIANT_KEYS = (
 
 
 def test_by_variant_results_shape_and_dtype():
-    """The 12-key by_variant sub-dict exists, is 2D (nv, npts), and float dtype."""
+    """The 12 by-variant results exist, are 2D (npts, nv), and float dtype."""
     sim = _run(n_days=30)
     d = sim.diseases.covid
     assert d.nv == 1 and d.variant_map == {0: 'wild'}
-    vres = d.results['variant']
-    assert tuple(vres.keys()) == BY_VARIANT_KEYS, 'exact 12-key by_variant contract'
+    keys = tuple(k for k in d.results.keys() if k.endswith('_by_variant'))
+    assert keys == BY_VARIANT_KEYS, 'exact 12-key by_variant contract'
+    assert tuple(sim.results['variant'].keys()) == BY_VARIANT_KEYS, 'v3: sim.results["variant"]'
     npts = d.t.npts
     for k in BY_VARIANT_KEYS:
-        a = _arr(vres[k])
-        assert a.shape == (1, npts), f'{k} must be 2D (nv, npts), got {a.shape}'
+        a = _arr(d.results[k])
+        assert a.shape == (npts, 1), f'{k} must be 2D (npts, nv), got {a.shape}'
         assert a.dtype.kind == 'f', f'{k} must be float dtype (v3 result_float)'
 
 
@@ -62,28 +63,27 @@ def test_nv1_by_variant_equals_aggregate():
     """At nv==1 the variant-0 stocks equal the aggregate stocks (host exclusivity is structural)."""
     sim = _run()
     r = sim.diseases.covid.results
-    vres = r['variant']
-    assert np.array_equal(_arr(r['n_infectious']), _arr(vres['n_infectious_by_variant'])[0]), \
+    assert np.array_equal(_arr(r['n_infectious']), _arr(r['n_infectious_by_variant'])[:,0]), \
         'n_infectious_by_variant[0] must equal aggregate n_infectious at nv==1'
-    assert np.array_equal(_arr(r['n_exposed']), _arr(vres['n_exposed_by_variant'])[0]), \
+    assert np.array_equal(_arr(r['n_exposed']), _arr(r['n_exposed_by_variant'])[:,0]), \
         'n_exposed_by_variant[0] must equal aggregate n_exposed at nv==1'
     # cum_*_by_variant is the cumsum of new_*_by_variant along time.
     for stem in ('infections', 'symptomatic', 'severe', 'infectious'):
-        new = _arr(vres[f'new_{stem}_by_variant'])[0]
-        cum = _arr(vres[f'cum_{stem}_by_variant'])[0]
+        new = _arr(r[f'new_{stem}_by_variant'])[:,0]
+        cum = _arr(r[f'cum_{stem}_by_variant'])[:,0]
         seeds = sim['pop_infected'] if stem == 'infections' else 0 # As in v3, cum_infections includes the initial infections
         assert np.allclose(cum, np.cumsum(new) + seeds), f'cum_{stem}_by_variant must be cumsum(new)'
 
 
 def test_immunity_arrays_allocated_zero():
-    """The 2D immunity arrays are allocated (nv, n_raw) and all-zero (no effect at nv==1)."""
+    """The 2D immunity arrays have one column per variant, and are all zero (no effect at nv==1)."""
     sim = _run(n_days=20)
     d = sim.diseases.covid
     n_raw = len(d.rel_sus.raw)
     for name in ('sus_imm', 'symp_imm', 'sev_imm'):
         a = getattr(d, name)
-        assert a is not None and a.shape == (1, n_raw), f'{name} shape (nv, n_raw)'
-        assert not a.any(), f'{name} must be all-zero at nv==1 (no cross-immunity yet)'
+        assert a.raw.shape == (n_raw, 1), f'{name} shape (n_raw, nv)'
+        assert not a.values.any(), f'{name} must be all-zero at nv==1 (no cross-immunity yet)'
 
 
 # --- scalar variant-tag lifecycle --------------------------------------------
@@ -134,15 +134,16 @@ def test_step_die_clears_variant_tags():
     assert np.isnan(_arr(covid.recovered_variant)[v]).all(), 'recovered_variant cleared on death'
 
 
-def test_births_rejected():
-    """The 2D immunity arrays are not growth-aware, so births must be rejected."""
+def test_births_supported():
+    """The 2D immunity arrays grow with the population, so births are supported."""
     covid = cv.COVID(init_prev=ss.bernoulli(p=0.02))
     sim = ss.Sim(people=cv.People(1000), diseases=covid, networks='random',
-                 demographics=ss.Births(birth_rate=20),
-                 start=ss.date('2020-03-01'), dur=ss.days(5), dt=ss.days(1),
+                 demographics=ss.Births(birth_rate=200),
+                 start=ss.date('2020-03-01'), dur=ss.days(60), dt=ss.days(1),
                  rand_seed=1, verbose=0, copy_inputs=False)
-    with pytest.raises(NotImplementedError):
-        sim.init()
+    sim.run()
+    assert len(covid.rel_sus.raw) > 1000, 'births should have occurred'
+    assert len(covid.sus_imm.raw) == len(covid.rel_sus.raw), 'the immunity arrays grow with the population'
 
 
 # --- infect() override + variant-aware set_prognoses + cv.variant -----------
@@ -182,7 +183,7 @@ def test_variant_registration():
     assert d.nv == 3
     assert d.variant_map == {0: 'wild', 1: 'alpha', 2: 'delta'}
     assert set(d.variant_pars) == {'wild', 'alpha', 'delta'}
-    assert d.sus_imm.shape[0] == 3, '2D immunity arrays sized to nv'
+    assert d.sus_imm.raw.shape[1] == 3, '2D immunity arrays sized to nv'
     # The default alpha rel_beta (1.67) is registered verbatim from get_variant_pars.
     assert d.variant_pars['alpha']['rel_beta'] == cv.get_variant_pars(variant='alpha')['rel_beta']
 
@@ -193,9 +194,9 @@ def test_two_variant_run_independent_draws():
                  variants=cv.variant('alpha', days=10, n_imports=30))
     sim.run()  # no DistNotReadyError
     d = sim.diseases.covid
-    ci = np.asarray(d.results['variant']['cum_infections_by_variant'])
-    assert ci[0, -1] > 0, 'wild infects'
-    assert ci[1, -1] > 0, 'alpha infects (independent per-variant transmission draws)'
+    ci = np.asarray(d.results['cum_infections_by_variant'])
+    assert ci[-1, 0] > 0, 'wild infects'
+    assert ci[-1, 1] > 0, 'alpha infects (independent per-variant transmission draws)'
 
 
 def test_per_variant_rel_beta_scales_transmission():
@@ -205,8 +206,8 @@ def test_per_variant_rel_beta_scales_transmission():
         sim = cv.Sim(pop_size=20000, pop_infected=0, pop_type='random', n_days=70, rand_seed=1,
                      verbose=0, variants=v)
         sim.run()
-        ci = np.asarray(sim.diseases.covid.results['variant']['cum_infections_by_variant'])
-        return ci[1, -1]  # the 'test' variant is index 1 (wild=0, seeded 0)
+        ci = np.asarray(sim.diseases.covid.results['cum_infections_by_variant'])
+        return ci[-1, 1]  # the 'test' variant is index 1 (wild=0, seeded 0)
     hi = run(2.5)
     lo = run(0.4)
     assert hi > lo, f'higher rel_beta must transmit more: rel_beta=2.5 -> {hi}, 0.4 -> {lo}'
@@ -231,8 +232,8 @@ def test_string_variant_sugar_introduces_at_t0():
     sim.run()
     d = sim.diseases.covid
     assert d.variant_map == {0: 'wild', 1: 'beta'}
-    ci = np.asarray(d.results['variant']['cum_infections_by_variant'])
-    assert ci[1, -1] > 0, 'the beta variant (introduced at t0) infects agents'
+    ci = np.asarray(d.results['cum_infections_by_variant'])
+    assert ci[-1, 1] > 0, 'the beta variant (introduced at t0) infects agents'
 
 
 # --- cv.CrossImmunity connector + reinfection -------------------------------
@@ -276,9 +277,9 @@ def test_crossimmunity_matrix_written_to_imm_arrays():
     src_v = np.asarray(d.recovered_variant[rec]).astype(int)
     for v in range(d.nv):
         expected = matrix[v, src_v]
-        assert np.allclose(d.sus_imm[v, ru], expected), f'sus_imm[{v}] must equal matrix[{v}, recovered_variant]'
-        assert np.allclose(d.symp_imm[v, ru], expected), 'symp_imm written from the same matrix (axis C: all three)'
-        assert np.allclose(d.sev_imm[v, ru], expected), 'sev_imm written from the same matrix'
+        assert np.allclose(d.sus_imm[ru, v], expected), f'sus_imm[{v}] must equal matrix[{v}, recovered_variant]'
+        assert np.allclose(d.symp_imm[ru, v], expected), 'symp_imm written from the same matrix (axis C: all three)'
+        assert np.allclose(d.sev_imm[ru, v], expected), 'sev_imm written from the same matrix'
 
 
 def test_same_variant_reinfection_is_zero():
@@ -293,7 +294,7 @@ def test_same_variant_reinfection_is_zero():
     src_v = np.asarray(d.recovered_variant[rec]).astype(int)
     ru = np.asarray(rec)
     # The protection against the OWN recovered variant must be exactly 1.0 (full) for every ever-recovered agent.
-    own_imm = d.sus_imm[src_v, ru]
+    own_imm = d.sus_imm[ru, src_v]
     assert np.allclose(own_imm, 1.0), 'same-variant sus_imm must be 1.0 (no same-variant reinfection)'
 
 
@@ -301,8 +302,8 @@ def test_reinfection_enabled_under_cross_immunity():
     """Cross-immunity active => reinfection occurs (total infections can exceed the population)."""
     sim = _multivariant_sim()
     d = sim.diseases.covid
-    ci = np.asarray(d.results['variant']['cum_infections_by_variant'])
-    total = ci[:, -1].sum()
+    ci = np.asarray(d.results['cum_infections_by_variant'])
+    total = ci[-1, :].sum()
     assert total > 20000, f'reinfection should push total infections above pop_size, got {total}'
 
 
@@ -320,8 +321,8 @@ def test_cross_immunity_reduces_heterologous_reinfection():
         sim = cv.Sim(pop_size=20000, pop_infected=100, pop_type='random', n_days=100, rand_seed=5,
                      verbose=0, variants=v, connectors=conn)
         sim.run()
-        ci = np.asarray(sim.diseases.covid.results['variant']['cum_infections_by_variant'])
-        return ci[1, -1]
+        ci = np.asarray(sim.diseases.covid.results['cum_infections_by_variant'])
+        return ci[-1, 1]
     strong = second_variant_total(0.9)  # strong cross-protection => 2nd variant suppressed
     weak   = second_variant_total(0.1)  # weak cross-protection  => 2nd variant escapes, spreads
     assert weak > strong, f'weaker cross-immunity must permit more reinfection: weak={weak}, strong={strong}'

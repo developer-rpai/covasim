@@ -100,9 +100,9 @@ class CrossImmunity(ss.Connector):
             src_v = src[finite].astype(int)
             for v in range(covid.nv):
                 imm = self.matrix[v, src_v]
-                covid.sus_imm[v, ru]  = imm
-                covid.symp_imm[v, ru] = imm
-                covid.sev_imm[v, ru]  = imm
+                covid.sus_imm[ru, v]  = imm
+                covid.symp_imm[ru, v] = imm
+                covid.sev_imm[ru, v]  = imm
             return
 
         # NAb-weighted path. Advance NAb kinetics, then compute protection over ALL active agents
@@ -134,7 +134,7 @@ class CrossImmunity(ss.Connector):
                 vaccine[is_vacc] = eff_by_vacc[vsrc[is_vacc].astype(int)]
                 imm = np.maximum(natural, vaccine)
             eff = nab_vals * imm
-            covid.sus_imm[v, ru]  = cvimm.calc_VE(eff, 'sus',  nab_eff)
-            covid.symp_imm[v, ru] = cvimm.calc_VE(eff, 'symp', nab_eff)
-            covid.sev_imm[v, ru]  = cvimm.calc_VE(eff, 'sev',  nab_eff)
+            covid.sus_imm[ru, v]  = cvimm.calc_VE(eff, 'sus',  nab_eff)
+            covid.symp_imm[ru, v] = cvimm.calc_VE(eff, 'symp', nab_eff)
+            covid.sev_imm[ru, v]  = cvimm.calc_VE(eff, 'sev',  nab_eff)
         return

@@ -143,6 +143,8 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
         for key in pars.keys(): # Only loop over keys that have been populated
             if key in version_pars: # Only replace keys that exist in the old version
                 pars[key] = version_pars[key]
+        if version_pars.get('prognoses') is not None: # As in v3, convert them from lists to arrays
+            pars['prognoses'] = get_prognoses(pars['prog_by_age'], version=version)
 
         # Handle code change migration
         if sc.compareversions(version, '<2.1.0'):

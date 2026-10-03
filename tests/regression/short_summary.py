@@ -179,9 +179,8 @@ def build_summary_variants(sim):
     """
     if hasattr(sim, 'diseases'):  # v4 (Starsim-based)
         d = list(sim.diseases.values())[0]
-        vres = d.results['variant']
-        ci = np.asarray(vres['cum_infections_by_variant'])   # (nv, npts), seed-offset on wild applied
-        ni = np.asarray(vres['n_infectious_by_variant'])     # (nv, npts)
+        ci = np.asarray(d.results['cum_infections_by_variant']).T   # (nv, npts), seed-offset on wild applied
+        ni = np.asarray(d.results['n_infectious_by_variant']).T     # (nv, npts)
         vmap = d.variant_map
         peak_n_inf = float(np.asarray(d.results['n_infectious']).max())
         cum_deaths = float(np.asarray(d.results['cum_deaths']).max())
@@ -281,7 +280,7 @@ def build_summary_vaccination(sim):
         # Infection EVENTS (= sum over variants of cum_infections_by_variant, seed-inclusive, counts
         # reinfections), matching v3's flow-based cum_infections -- NOT unique-ever-infected agents
         # (which would under-count under use_waning reinfection).
-        cum_inf = float(np.asarray(res['variant']['cum_infections_by_variant'])[:, -1].sum())
+        cum_inf = float(np.asarray(res['cum_infections_by_variant'])[-1, :].sum())
         return {
             'cum_infections':   cum_inf,
             'cum_severe':       float(np.asarray(res['cum_severe']).max()),

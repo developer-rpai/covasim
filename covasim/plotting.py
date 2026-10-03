@@ -520,7 +520,7 @@ def plot_sim(to_plot=None, sim=None, do_save=None, fig_path=None, fig_args=None,
             for resnum,reskey in enumerate(keylabels):
                 res_t = get_x(sim, args.date)
                 if reskey in variant_keys:
-                    res = sim.results['variant'][reskey] # Shape (n_variants, npts)
+                    res = sim.results['variant'][reskey] # Shape (npts, n_variants)
                     ns = sim['n_variants']
                     variant_colors = sc.gridcolors(ns)
                     for variant in range(ns):
@@ -533,8 +533,8 @@ def plot_sim(to_plot=None, sim=None, do_save=None, fig_path=None, fig_args=None,
                         else:     label = v_label
                         # Plotting
                         if res.low is not None and res.high is not None:
-                            ax.fill_between(res_t, res.low[variant,:], res.high[variant,:], color=color, **args.fill)  # Create the uncertainty bound
-                        ax.plot(res_t, res.values[variant,:], label=label, **args.plot, c=color)  # Actually plot the sim!
+                            ax.fill_between(res_t, res.low[:,variant], res.high[:,variant], color=color, **args.fill)  # Create the uncertainty bound
+                        ax.plot(res_t, res.values[:,variant], label=label, **args.plot, c=color)  # Actually plot the sim!
                 else:
                     res = sim.results[reskey]
                     color = set_line_options(colors, reskey, resnum, get_result_color(reskey, res))  # Choose the color
@@ -739,7 +739,7 @@ def plot_people(people, bins=None, width=1.0, alpha=0.6, fig_args=None, axis_arg
 
     # Compute statistics
     sim = people.sim
-    ages = people.age.values # Ages of the people who are alive
+    ages = people.states['age'].values # Ages of the people who are alive
     min_age = min(bins)
     max_age = max(bins)
     edges = np.append(bins, np.inf) # Add an extra bin to end to turn them into edges

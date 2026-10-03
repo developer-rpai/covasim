@@ -710,14 +710,6 @@ def _process_days(sim, days):
     return days, dates
 
 
-def _scale_factor(sim):
-    """ The number of real people each agent represents on the current day (v3 ``sim.rescale_vec[sim.t]``) """
-    rescale_vec = getattr(sim, 'rescale_vec', None) # Only defined if dynamic rescaling is used
-    if rescale_vec is not None:
-        return rescale_vec[sim.ti]
-    return float(sim.pars.pop_scale)
-
-
 def validate_recorded_dates(sim, requested_dates, recorded_dates, die=True):
     """
     Helper method to ensure that dates recorded by an analyzer match the ones requested.
@@ -899,7 +891,7 @@ class age_histogram(Analyzer):
         for ind in cvi.find_day(self.days, sim.ti):
             date = self.dates[ind] # Find the date for this index
             self.hists[date] = sc.objdict() # Initialize the dictionary
-            scale  = _scale_factor(sim) # Determine current scale factor
+            scale  = sim.current_scale # Determine current scale factor
             people = PeopleSnapshot(sim, copy=False) # All agents, including those who have died
             age    = people.age # Get the age distribution, since used heavily
             self.hists[date]['bins'] = self.bins # Copy here for convenience
@@ -1060,7 +1052,7 @@ class daily_age_stats(Analyzer):
         for state in self.states:
             inds = sc.findinds(people[f'date_{state}'], sim.ti)
             b, _ = np.histogram(people.age[inds], self.edges)
-            df_entry.update({state: b * _scale_factor(sim)})
+            df_entry.update({state: b * sim.current_scale})
         df_entry.update({'day':sim.ti, 'age': self.bins})
         self.age_results.update({sim.date(sim.ti): df_entry})
         return
@@ -1544,7 +1536,7 @@ class nab_histogram(Analyzer):
         for ind in cvi.find_day(self.days, sim.ti):
             date = self.dates[ind]  # Find the date for this index
             self.hists[date] = sc.objdict()  # Initialize the dictionary
-            scale = _scale_factor(sim)  # Determine current scale factor
+            scale = sim.current_scale  # Determine current scale factor
             self.hists[date]['bins'] = self.bins  # Copy here for convenience
             self.hists[date]['n'] = np.histogram(log_nabs, bins=self.edges)[0] * scale  # Actually count the people
             self.hists[date]['s'] = np.std(log_nabs)    # keep the std
