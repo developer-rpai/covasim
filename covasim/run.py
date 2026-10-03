@@ -1047,8 +1047,10 @@ def single_run(sim, ind=0, reseed=True, noise=0.0, noisepar=None, keep_people=Fa
     if not sim.label:
         sim.label = f'Sim {ind}'
 
-    if sim.initialized: # As in v3, a sim that has already been initialized or run is run again from the start
-        sim._restore_orig()
+    if sim.initialized: # As in v3, a sim that has been run is run again from the start, but one that has only been initialized is run as is (keeping any changes made to it, e.g. to the people), unless its parameters are to be changed
+        has_run = sim.ti > 0
+        if has_run or reseed or sim_args:
+            sim._restore_orig()
 
     if reseed:
         sim['rand_seed'] += ind # Reset the seed, otherwise no point of parallel runs

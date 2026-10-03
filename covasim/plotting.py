@@ -209,7 +209,7 @@ def handle_to_plot(kind, to_plot, n_cols, sim, check_ready=True):
             if reskey in allkeys:
                 res = sim.results[reskey] if reskey in reskeys else sim.results['variant'][reskey]
                 to_plot[get_result_label(res)] = [reskey] # Use the result label as the key and the reskey as the value
-            elif not from_defaults: # A few v3 results, e.g. cum_known_deaths, are not in v4, so skip these in the default plots
+            elif not from_defaults: # Some v3 results may not be in v4, so skip these in the default plots
                 invalid += reskey
         if len(invalid):
             errormsg = f'The following key(s) are invalid:\n{sc.strjoin(invalid)}\n\nValid main keys are:\n{sc.strjoin(reskeys)}\n\nValid variant keys are:\n{sc.strjoin(varkeys)}'

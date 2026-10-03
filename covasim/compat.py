@@ -257,8 +257,8 @@ class V3Sim:
 
     @property
     def n(self):
-        ''' v3: the number of agents, including those who have died '''
-        return self.people.n_uids if self.initialized else self['pop_size']
+        ''' v3: the number of agents (as with len(sim.people), those who are alive) '''
+        return len(self.people) if self.initialized else self['pop_size']
 
     @property
     def scaled_pop_size(self):
@@ -519,11 +519,21 @@ class V3People:
     ``people.date_infectious``) are the v4 time indices (``ti_infectious``), since the timestep
     is one day.
 
-    As in v3, these per-agent arrays (and ``people.age``, ``people.sex`` and ``people.dead``) cover
-    every agent ever created, including those who have died, so the index is the UID: e.g.
-    ``sc.findinds(people.dead)`` returns UIDs. In Starsim, states only include agents who are alive;
-    use ``people.states`` or the COVID module (e.g. ``sim.diseases.covid.dead``) for these.
+    As in Starsim, these per-agent arrays only include agents who are alive (unlike v3, where
+    agents who died stayed in the arrays). The exceptions are ``people.dead`` and ``people.date_dead``,
+    which cover every agent ever created, so the index is the UID: e.g. ``people.dead.sum()`` is the
+    number of deaths, and ``people.age[cv.true(people.dead)]`` is the ages of those who died (indexing
+    by UID works for any agent). For other arrays, ``.raw`` has the values for every agent, e.g.
+    ``people.age.raw[:sim.people.n_uids]``.
     '''
+
+    # v3: the per-agent durations (e.g. people.dur_exp2inf) are the differences between these dates (NaN if not reached); see also dur_disease
+    _v3_durs = dict(
+        dur_exp2inf  = ('ti_exposed',     'ti_infectious'),
+        dur_inf2sym  = ('ti_infectious',  'ti_symptomatic'),
+        dur_sym2sev  = ('ti_symptomatic', 'ti_severe'),
+        dur_sev2crit = ('ti_severe',      'ti_critical'),
+    )
 
     def _v3_covid(self):
         ''' The COVID module, or None if the sim is not initialized '''
@@ -532,46 +542,77 @@ class V3People:
         return diseases.get('covid') if diseases is not None else None
 
     def _v3_all(self, state):
-        ''' v3: a view of the state over all agents ever created, alive or dead, rather than only those alive (as ss.Filter does for a subset) '''
+        ''' A view of the state over all agents ever created, alive or dead, rather than only those alive (as ss.Filter does for a subset); used for people.dead and people.date_dead '''
         if not self.initialized: # Before initialization, there are no agents yet
             return state
         view = object.__new__(state.__class__)
         view.__dict__ = state.__dict__.copy() # Shares the values, so setting them changes the state
-        view.people = sc.objdict(auids=self.indices()) # Every agent counts as active
+        view.people = sc.objdict(auids=self.uid.raw[:self.n_uids].view(ss.uids)) # Every agent counts as active
         return view
 
     def __getattr__(self, key):
         ''' v3: states such as people.exposed and people.date_exposed; only called if normal attribute lookup fails '''
         covid = self._v3_covid()
         if covid is not None and not key.startswith('_'):
+            if key in self._v3_durs: # e.g. dur_exp2inf = date_infectious - date_exposed
+                start, end = self._v3_durs[key]
+                return getattr(covid, end) - getattr(covid, start)
             if key.startswith('date_') and hasattr(covid, 'ti_' + key[5:]): # e.g. date_exposed -> ti_exposed
-                return self._v3_all(getattr(covid, 'ti_' + key[5:]))
+                state = getattr(covid, 'ti_' + key[5:])
+                return self._v3_all(state) if key == 'date_dead' else state # Only agents who have died have a date of death
             state = getattr(covid, key, None)
             if isinstance(state, ss.Arr):
-                return self._v3_all(state)
+                return state
         errormsg = f"'{self.__class__.__name__}' object has no attribute '{key}'"
         raise AttributeError(errormsg)
 
     @property
-    def age(self):
-        ''' v3: the age of every agent ever created, including those who have died (the Starsim state is people.states['age']) '''
-        return self._v3_all(self.__dict__['age'])
-
-    @age.setter
-    def age(self, value):
-        ''' Starsim sets the state as an attribute when People is created '''
-        self.__dict__['age'] = value
-
-    @property
     def dead(self):
-        ''' v3: whether each agent ever created has died (in Starsim, ~people.alive, which only includes agents who are alive) '''
+        ''' v3: whether each agent ever created has died; unlike the other arrays, this includes agents who have died (otherwise it would always be false) '''
         return self._v3_all(~self.alive)
 
     @property
     def sex(self):
         ''' v3: sex as an integer array, 0 for female and 1 for male '''
-        female = self._v3_all(self.female)
-        return female.asnew((~female).values.astype(int))
+        return self.female.asnew((~self.female).values.astype(int))
+
+    @property
+    def dur_disease(self):
+        ''' v3: how long each agent had (or will have) COVID, from exposure to recovery or death '''
+        covid = self._v3_covid()
+        end = covid.ti_recovered.asnew(np.fmin(covid.ti_recovered.values, covid.ti_dead.values)) # Whichever happens
+        return end - covid.ti_exposed
+
+    @property
+    def flows(self):
+        ''' v3: the number of new infections, deaths, tests, etc. on the current timestep, e.g. people.flows['new_infections'] '''
+        covid = self._v3_covid()
+        flows = {f'new_{key}':val for key,val in covid._flow.items()}
+        flows.update({f'new_{key}':val for key,val in covid._test_flow.items()})
+        flows.update({f'new_{key}':val for key,val in covid._vacc_flow.items()})
+        flows['new_infections'] = covid.results.new_infections[covid.ti]
+        flows['new_infectious'] = covid._flow_variant['new_infectious'].sum()
+        flows['new_quarantined'] = np.count_nonzero(covid.date_quarantined == covid.ti)
+        return flows
+
+    def infect(self, inds, hosp_max=None, icu_max=None, source=None, layer=None, variant=0):
+        '''
+        v3: infect the specified people (those who are susceptible) and determine their outcomes; see
+        cv.COVID.set_prognoses(). hosp_max and icu_max are ignored, since bed capacity is checked by
+        the COVID module. Returns the UIDs of the people infected.
+        '''
+        covid = self._v3_covid()
+        uids, unique = np.unique(inds, return_index=True) # Remove duplicates
+        uids = ss.uids(uids)
+        keep = covid.susceptible[uids] # Keep only susceptibles
+        uids = uids[keep]
+        if source is not None:
+            source = ss.uids(np.asarray(source)[unique][keep])
+        if len(uids):
+            covid.set_prognoses(uids, sources=source, variant=int(variant))
+            if layer is not None:
+                covid.infection_log.add_data(uids, network=layer)
+        return uids
 
     def true(self, key):
         ''' v3: the UIDs of people for whom this state is true '''
@@ -635,8 +676,8 @@ class V3People:
         return self._v3_covid().schedule_quarantine(inds, start_date=start_date, period=period)
 
     def indices(self):
-        ''' v3: the indices (UIDs) of all agents ever created, including those who have died '''
-        return self.uid.raw[:self.n_uids].view(ss.uids)
+        ''' v3: the indices (UIDs) of the agents '''
+        return self.auids
 
     def story(self, uid, *args):
         '''

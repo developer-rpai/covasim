@@ -1159,18 +1159,20 @@ def make_infection_log(sim):
     """
     Return the sim's transmission log in the v3 format: a list of dicts with keys ``source`` (None for a
     seed infection or importation), ``target``, ``date`` (the day index), ``layer``, and ``variant``
-    (the variant label). This is built from ``sim.diseases.covid.infection_events``.
+    (the variant label). This is built from Starsim's infection log (``sim.diseases.covid.infection_log``,
+    an ``ss.InfectionLog``; use its ``to_df()`` method for a dataframe).
 
     Args:
         sim (Sim): a sim that has been run
     """
     covid = sim.diseases.covid
+    df = covid.infection_log.to_df()
     infection_log = []
-    for source, target, ti, variant, layer in covid.infection_events:
+    for source, target, day, layer, variant in zip(df.source.tolist(), df.target.tolist(), df.day.tolist(), df.network.tolist(), df.variant.tolist()):
         entry = dict(
-            source  = None if source < 0 else source,
+            source  = None if (pd.isna(source) or source < 0) else source, # Seed infections and importations have no source
             target  = target,
-            date    = ti,
+            date    = day,
             layer   = layer,
             variant = covid.variant_map[variant],
         )
@@ -1579,7 +1581,7 @@ class TransTree(Analyzer):
     and target. If NetworkX is installed (required for most methods), "graph" includes an
     NX representation of the transmission tree.
 
-    The transmission log is always recorded by the COVID module (``sim.diseases.covid.infection_events``),
+    The transmission log is always recorded by the COVID module (``sim.diseases.covid.infection_log``),
     so the tree can be made from any sim after it has run. It can also be added as an analyzer
     (``analyzers=cv.TransTree()``), in which case it is made when the sim finishes.
 

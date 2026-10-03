@@ -29,12 +29,13 @@ def make_networks(pop_type='random', contacts=None):
     cvpar.reset_layer_pars(layer_pars)
     c = layer_pars['contacts']
     if pop_type == 'random':
-        networks = [ss.RandomNet(name='a', n_contacts=ss.poisson(c['a']), dynamic=False)]
+        networks = [ss.RandomNet(name='a', n_contacts=ss.poisson(c['a']), dynamic=False, uniform_targets=True)] # As in v3, targets are chosen uniformly
     else:
         hybrid = ss.HybridNet(
             household_size = ss.poisson(c['h']),
             contacts = dict(s=c['s'], w=c['w'], c=c['c']),
             beta = dict(h=1.0, s=1.0, w=1.0, c=1.0), # Per-layer transmissibility is applied by the disease
+            uniform_targets = True, # As in v3, targets are chosen uniformly
         )
         networks = [hybrid]
     return networks

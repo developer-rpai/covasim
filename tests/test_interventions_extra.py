@@ -67,6 +67,21 @@ def test_sequence_switches_interventions():
     assert float(np.asarray(sim.diseases.covid.results['cum_tests']).max()) > 0, 'tests performed'
 
 
+def test_sequence_added_midrun():
+    """A cv.sequence added part-way through a run gives the same results as one supplied at the start."""
+    def make_seq():
+        return cv.sequence(days=[30], interventions=[cv.contact_tracing(trace_probs=0.6, start_day=30)])
+    tp = cv.test_prob(symp_prob=0.2)
+    kw = dict(pop_size=5000, pop_type='hybrid', pop_infected=100, n_days=60, verbose=0)
+    sim1 = cv.Sim(interventions=[tp, make_seq()], **kw).run()
+    sim2 = cv.Sim(interventions=[tp], **kw)
+    sim2.run(until=30)
+    sim2['interventions'] += [make_seq()]
+    sim2.run()
+    assert sim1.summary['cum_quarantined'] > 0
+    assert sim1.summary['cum_quarantined'] == sim2.summary['cum_quarantined']
+
+
 def test_change_beta_zero_stops_transmission():
     """change_beta to 0 from day 0 stops all onward transmission (only the initial seeds infected)."""
     sim = _run(cv.change_beta(days=0, changes=0.0), n_days=60)

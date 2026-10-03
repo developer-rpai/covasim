@@ -252,11 +252,13 @@ class COVID(ss.Infection):
         self.vaccine_map  = {}
         self._vacc_nab_init = ss.normal(loc=0.0, scale=2.0)
 
-        # Transmission log (the v3 people.infection_log), used by cv.TransTree and cv.daily_stats: one
-        # (source, target, ti, variant, layer) tuple per infection, with source=-1 for seed infections and
-        # importations. Always recorded, since it is cheap (<1% of run time). Reset in init_post.
-        self.infection_events = []
         self.n_initial_cases = 0 # Set in init_post()
+        return
+
+    def init_pre(self, sim):
+        """Always record the transmission log (v3's people.infection_log), since it is cheap; it's used by cv.TransTree, cv.daily_stats, and sim.compute_r_eff()"""
+        super().init_pre(sim)
+        self.infection_log = ss.InfectionLog(disease=self.name, networks=sim.networks.keys())
         return
 
     def _layer_par(self, key, layer):
@@ -426,11 +428,11 @@ class COVID(ss.Infection):
         # Per-UID variant + per-variant branch-probability multipliers (length-nv lookups).
         var_of = self._variant_of(uids, variant)
 
-        # Log seed infections and importations (transmissions are logged in infect(), which knows the layer)
-        if sources is None or np.isscalar(sources):
-            layer = 'seed_infection' if variant is None else 'importation'
-            for target, vi in zip(u.tolist(), np.asarray(var_of).tolist()):
-                self.infection_events.append((-1, target, ti, int(vi), layer))
+        # Add the day and variant to the transmission log; ss.Infection.step() adds the network for transmissions
+        log_data = dict(day=ti, variant=var_of)
+        if sources is None or np.isscalar(sources): # Seed infections and importations have no network
+            log_data['network'] = 'seed_infection' if variant is None else 'importation'
+        self.infection_log.add_data(uids, **log_data)
         labels = [self.variant_map[i] for i in range(self.nv)]
         relsymp_v  = np.array([self.variant_pars[l]['rel_symp_prob']   for l in labels])
         relsev_v   = np.array([self.variant_pars[l]['rel_severe_prob'] for l in labels])
@@ -589,11 +591,6 @@ class COVID(ss.Infection):
         networks = np.concatenate(networks)[inds]
         case_variant = np.concatenate(case_variant)[inds]
         self._new_case_variant = dict(zip(new_cases.tolist(), case_variant.tolist()))
-
-        # Log the transmissions (seed infections and importations are logged in set_prognoses())
-        layer_keys = list(self.sim.networks.keys())
-        for source, target, vi, ni in zip(sources.tolist(), new_cases.tolist(), case_variant.tolist(), networks.tolist()):
-            self.infection_events.append((source, target, self.ti, vi, layer_keys[ni]))
         return new_cases, sources, networks
 
     def import_variant(self, uids, variant):
@@ -824,9 +821,10 @@ class COVID(ss.Infection):
         new_dead = (self.infected & (self.ti_dead <= ti)).uids
         if len(new_dead):
             self.sim.people.request_death(new_dead)
+            self.infected[new_dead] = False # As in v3, people don't transmit on the day they die
         # Capture this step's flows for update_results
         self._flow = dict(symptomatic=len(new_symp), severe=len(new_sev), critical=len(new_crit),
-                          recoveries=len(new_rec), deaths=len(new_dead), reinfections=0) # Reinfections are counted in set_prognoses()
+                          recoveries=len(new_rec), deaths=len(new_dead), known_deaths=np.count_nonzero(self.diagnosed[new_dead]), reinfections=0) # Reinfections are counted in set_prognoses()
 
         # Testing/tracing/quarantine state machines (inert with no testing intervention attached).
         self._step_testing()
@@ -893,6 +891,9 @@ class COVID(ss.Infection):
             R('cum_critical',    'Cumulative critical'),
             R('cum_recoveries',  'Cumulative recoveries'),
             R('cum_deaths',      'Cumulative deaths'),
+            R('new_known_deaths', 'New known deaths'), # Deaths among people who had been diagnosed
+            R('cum_known_deaths', 'Cumulative known deaths'),
+            R('n_removed',       'Number removed'), # Recovered or dead
             R('new_reinfections', 'New reinfections'),
             R('cum_reinfections', 'Cumulative reinfections'),
             R('n_exposed',       'Number exposed'), # As in v3, exposed means infected, including infectious
@@ -923,7 +924,7 @@ class COVID(ss.Infection):
             ss.Result('pop_protection', dtype=float, scale=False, label='Population mean protective immunity'),
             ss.Result('pop_symp_protection', dtype=float, scale=False, label='Population symptomatic protection'),
         )
-        self._flow = dict(symptomatic=0, severe=0, critical=0, recoveries=0, deaths=0, reinfections=0)
+        self._flow = dict(symptomatic=0, severe=0, critical=0, recoveries=0, deaths=0, known_deaths=0, reinfections=0)
         self._test_flow = dict(tests=0, diagnoses=0)  # per-step test/diagnosis flow
         self._vacc_flow = dict(doses=0, vaccinated=0)  # per-step dose/vaccination flow
 
@@ -959,6 +960,7 @@ class COVID(ss.Infection):
         res.new_critical[ti]    = self._flow['critical']
         res.new_recoveries[ti]  = self._flow['recoveries']
         res.new_deaths[ti]      = self._flow['deaths']
+        res.new_known_deaths[ti] = self._flow['known_deaths']
         res.new_reinfections[ti] = self._flow['reinfections']
         res.n_exposed[ti] = int(np.count_nonzero(self.infected))
         res.new_tests[ti]       = self._test_flow['tests']      # testing flows
@@ -999,6 +1001,9 @@ class COVID(ss.Infection):
         res.cum_critical[:]    = np.cumsum(res.new_critical[:])
         res.cum_recoveries[:]  = np.cumsum(res.new_recoveries[:])
         res.cum_deaths[:]      = np.cumsum(res.new_deaths[:])
+        res.cum_known_deaths[:] = np.cumsum(res.new_known_deaths[:])
+        count_recov = 1 - self.pars.use_waning # As in v3, with waning, people who have recovered are susceptible again, so aren't counted as removed
+        res.n_removed[:]       = count_recov*res.cum_recoveries[:] + res.cum_deaths[:]
         res.cum_tests[:]       = np.cumsum(res.new_tests[:])
         res.cum_diagnoses[:]   = np.cumsum(res.new_diagnoses[:])
         res.cum_doses[:]       = np.cumsum(res.new_doses[:])
@@ -1042,7 +1047,7 @@ class COVID(ss.Infection):
     def shrink(self):
         """Shrink the module for saving, including the per-variant immunity arrays and other per-agent data"""
         super().shrink()
-        for attr in ['nab_kin', 'infection_events', '_new_case_variant', '_pending_quarantine']:
+        for attr in ['nab_kin', 'infection_log', '_new_case_variant', '_pending_quarantine']:
             if hasattr(self, attr):
                 setattr(self, attr, None)
         return
@@ -1106,7 +1111,6 @@ class COVID(ss.Infection):
         if self.pars.use_waning:
             self.nab_kin = cvimm.precompute_waning(self.t.npts, self.pars.nab_decay)
         self._pending_quarantine = {}  # start_day -> [(uid, end_day)] (reset for clean re-runs)
-        self.infection_events = []     # Transmission log (reset for clean re-runs)
 
         initial_cases = super().init_post()
         self.n_initial_cases = len(initial_cases) if initial_cases is not None else 0 # As in v3, these are added to cum_infections

@@ -19,6 +19,8 @@ from . import compat as cvc
 from . import utils as cvu
 from . import parameters as cvpar
 from . import immunity as cvimm
+from . import misc as cvm
+from . import covid as cvcovid
 
 __all__ = ['InterventionDict', 'Intervention', 'test_num', 'test_prob', 'contact_tracing']
 
@@ -855,63 +857,131 @@ class historical_vaccinate_prob(vaccinate_prob):
 
 class historical_wave(Intervention):
     """
-    Seed a prior wave of natural infection before t=0 (the v3 ``historical_wave``).
+    Imprint a historical (pre t=0) wave of infections in the population (the v3 ``historical_wave``).
 
-    At initialisation, a fraction ``prob`` of agents are marked recovered as if infected ``days_prior``
-    days ago, conferring back-dated natural NAbs (decayed via the NAb waning kernel) + the natural
-    cross-immunity matrix. Requires ``use_waning=True``. Bounded port: a single prior wave of the wild
-    variant; the agents are placed directly in the recovered state (not re-simulated).
+    At the start of the first timestep, agents are infected as if on a day before the start of the sim,
+    with the usual prognoses, so by day 0 most have recovered (with waned NAbs), some have died, and any
+    infected shortly before the start are still infectious. As in v3, the infections, recoveries, deaths
+    etc. before the start are counted in the results on day 0. Requires ``use_waning=True``.
 
     Args:
-        days_prior (int): how many days before t=0 the prior wave occurred.
-        prob (float): fraction of the population infected in the prior wave.
-        variant (str/int): name or index of the variant of the prior wave (default wild).
+        days_prior (int/str/list): offset relative to t=0 for the wave (the median of the default distribution), or the median date if a string like "2021-11-15"
+        prob       (float/list):   probability of infection during the wave
+        dist       (dict/list):    the shape of the wave, as a v3 distribution, e.g. dict(dist='normal', par1=0, par2=15) (default: normal with a full width at half maximum of 5 weeks)
+        subtarget  (dict/list):    subtarget the wave to people with particular indices (see test_num() for details)
+        variant    (str/list):     name of the variant associated with the wave (default wild)
+        kwargs     (dict):         passed to Intervention()
+
+    For multiple waves, supply lists; a single value applies to every wave.
+
+    **Examples**::
+
+        cv.Sim(interventions=cv.historical_wave(120, 0.30)).run().plot()
+        cv.Sim(interventions=cv.historical_wave(days_prior=[300, 120], prob=[0.1, 0.3])).run().plot()
     """
 
-    def __init__(self, days_prior, prob, variant=None, **kwargs):
+    def __init__(self, days_prior, prob, dist=None, subtarget=None, variant=None, **kwargs):
         super().__init__(**kwargs)
-        self.days_prior = int(days_prior)
-        self.prob = float(prob)
-        self.variant = 'wild' if variant is None else variant
-        self._select = ss.bernoulli(p=0.0)
+        default_dist = dict(dist='normal', par1=0, par2=5*7/2.355) # Default is a full width at half maximum of 5 weeks
+        self.days_prior = sc.tolist(days_prior)
+        n_waves = len(self.days_prior)
+        self.prob      = self._per_wave(prob, n_waves)
+        self.dist      = self._per_wave(default_dist if dist is None else dist, n_waves)
+        self.subtarget = self._per_wave(subtarget, n_waves)
+        self.variants  = self._per_wave('wild' if variant is None else variant, n_waves)
+        self._select = [ss.bernoulli(p=0.0) for wave in range(n_waves)] # Who is infected in each wave
+        self._timing = [cvcovid.v3_durs(dict(wave=wave_dist))['dur_wave'] for wave_dist in self.dist] # When they are infected, in whole days
+        self.seeds = None # The seed infections, which are reset before the wave and infected again afterwards
+        self.day0_flows = {} # Counts of infections etc. before the start of the sim, which are added to the results on day 0
+        self.day0_flows_variant = {}
         return
+
+    @staticmethod
+    def _per_wave(val, n_waves):
+        """A list is one value per wave; otherwise, use the same value for every wave"""
+        return list(val) if isinstance(val, list) else [val]*n_waves
 
     def init_post(self):
         super().init_post()
+        sim = self.sim
         covid = self._covid()
         if not covid.pars.use_waning:
             raise RuntimeError('cv.historical_wave() requires use_waning=True.')
-        if self.sim.pars.rescale and (self.sim['pop_scale'] > 1):
+        if sim.pars.rescale and (sim['pop_scale'] > 1):
             errormsg = 'cv.historical_wave() requires rescale=False, since rescaling assumes non-included agents are naive. Please disable dynamic rescaling.'
             raise RuntimeError(errormsg)
         mapping = {label:ind for ind,label in covid.variant_map.items()}
-        if isinstance(self.variant, str):
-            if self.variant not in mapping:
-                errormsg = f'cv.historical_wave() cannot add the new variant "{self.variant}", must be added to sim via cv.variant(). Current variants are: {sc.strjoin(mapping.keys())}'
+        for variant in self.variants:
+            if variant not in mapping:
+                errormsg = f'cv.historical_wave() cannot add the new variant "{variant}", must be added to sim via cv.variant(). Current variants are: {sc.strjoin(mapping.keys())}'
                 raise ValueError(errormsg)
-            self.variant = mapping[self.variant]
-        alive = covid.sim.people.auids
-        self._select.set(p=self.prob)
-        chosen = alive[self._select.rvs(alive)]
-        if not len(chosen):
+        return
+
+    def start_step(self):
+        """Infect the people in each wave, before the COVID module updates the states on the first timestep (which applies the recoveries, deaths, etc.)"""
+        super().start_step()
+        if self.ti != 0:
             return
-        event_day = -self.days_prior
-        # Natural NAbs (mild-symptom scaling), back-dated and decayed to t=0.
-        symp_scale = np.full(len(chosen), float(covid.pars.rel_imm_symp['mild']))
-        covid._update_peak_nab(chosen, symp_scale=symp_scale)
-        covid.imprint_historical_nab(chosen, event_day)
-        # Place the agents in the recovered state so the natural cross-immunity path also applies.
-        covid.susceptible[chosen] = False
-        covid.infected[chosen]    = False
-        covid.preinfectious[chosen] = False
-        covid.recovered[chosen]   = True
-        covid.naive[chosen]       = False # As in v3, they have been infected
-        covid.ti_recovered[chosen] = event_day
-        covid.recovered_variant[chosen] = self.variant
+        sim = self.sim
+        covid = self._covid()
+        mapping = {label:ind for ind,label in covid.variant_map.items()}
+
+        # As in v3, reset the seed infections, so they can be part of the wave; they are infected again in step()
+        self.seeds = (covid.ti_exposed == 0).uids
+        covid.make_naive(self.seeds)
+        flows_variant_before = {key:val.copy() for key,val in covid._flow_variant.items()}
+        flows = dict(reinfections=-covid._flow['reinfections'], symptomatic=0, severe=0, critical=0, recoveries=0)
+
+        # Infect the people in each wave
+        dates = [covid.ti_infected, covid.ti_exposed, covid.ti_infectious, covid.ti_symptomatic, covid.ti_severe, covid.ti_critical, covid.ti_recovered, covid.ti_dead, covid.ti_vl_switch]
+        alive = sim.people.auids
+        for wave, days_prior in enumerate(self.days_prior):
+            if isinstance(days_prior, str): # Interpret as a date
+                days_prior = sc.daydiff(days_prior, sim['start_day'])
+
+            # Choose who is infected, and when (days relative to the start of the sim, so negative)
+            probs = _apply_subtarget_probs(np.full(len(alive), self.prob[wave]), alive, self.subtarget[wave], sim)
+            self._select[wave].set(p=probs)
+            uids = alive[self._select[wave].rvs(alive)]
+            days = self._timing[wave].rvs(uids) - days_prior
+            before_start = days <= 0 # As in v3, skip infections that would be after the start of the sim
+            susceptible = covid.susceptible[uids] | (covid.ti_recovered[uids] <= days) # Not infected in an earlier wave, or have since recovered
+            keep = before_start & susceptible
+            uids, days = uids[keep], days[keep]
+            reinfected = uids[~covid.susceptible[uids]] # Infected in an earlier wave: count those outcomes now, since they are replaced by the new infection
+            flows['symptomatic'] += np.count_nonzero(covid.ti_symptomatic.notnan[reinfected])
+            flows['severe']      += np.count_nonzero(covid.ti_severe.notnan[reinfected])
+            flows['critical']    += np.count_nonzero(covid.ti_critical.notnan[reinfected])
+            flows['recoveries']  += len(reinfected)
+            if not len(uids):
+                warnmsg = f'Wave with days_prior of {days_prior} and prob of {self.prob[wave]} did not result in any historical infections - skipping this wave'
+                cvm.warn(warnmsg)
+                continue
+
+            # Infect them as if on day 0, then move the dates of their infection and outcomes back
+            covid.set_prognoses(uids, variant=mapping[self.variants[wave]])
+            for date in dates:
+                date[uids] = date[uids] + days
+            for day in np.unique(days): # Wane their NAbs from the day they were infected
+                covid.imprint_historical_nab(uids[days == day], day)
+            covid.infection_log.add_data(uids, day=days, network='historical')
+
+        # Store the counts to add to the results in step(), since the COVID module resets them when it updates the states
+        flows['reinfections'] += covid._flow['reinfections']
+        self.day0_flows = flows
+        self.day0_flows_variant = {key:val - flows_variant_before[key] for key,val in covid._flow_variant.items()}
         return
 
     def step(self):
-        pass  # historical_wave acts only at initialisation (pre-t=0 imprint)
+        """As in v3, count the infections before the start of the sim in the results on day 0, and infect the seed infections again"""
+        if self.ti == 0:
+            covid = self._covid()
+            for key,val in self.day0_flows.items():
+                covid._flow[key] += val
+            for key,val in self.day0_flows_variant.items():
+                covid._flow_variant[key] += val
+            self.sim.people.infect(self.seeds, layer='seed_infection') # Those who are susceptible, i.e. not still infected from the wave
+        return
 
 
 def prior_immunity(*args, **kwargs):
@@ -1162,7 +1232,8 @@ class sequence(Intervention):
 
     def start_step(self):
         super().start_step()
-        for intv in self.interventions: # The children aren't in the integration loop, so advance their random numbers here
+        for intv in self.interventions: # The children aren't in the integration loop, so set their time index (which starts at 0, even if the sequence is added part-way through a run) and advance their random numbers here
+            intv.t.ti = self.ti
             intv.start_step()
         return
 

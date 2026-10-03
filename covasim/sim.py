@@ -258,7 +258,7 @@ class Sim(cvc.V3Sim, ss.Sim):
             elif sc.isstring(label) or isinstance(label, type):
                 for ind,ia_obj in enumerate(ia_list):
                     if isinstance(label, type):
-                        is_match = isinstance(ia_obj, label)
+                        is_match = isinstance(ia_obj, label) or str(ia_obj.__class__) == str(label) # As in v3, also match by class name, since a class defined in a script or notebook can be a different object after a parallel run
                     else:
                         is_match = label in [ia_obj.label, ia_obj.name] or (partial and label in str(ia_obj.label))
                     if is_match:
