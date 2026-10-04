@@ -85,6 +85,7 @@ def test_historical_vaccinate_prob():
                      interventions=cv.historical_vaccinate_prob(vaccine='pfizer', days=[day], prob=0.5))
         sim.run()
         d = sim.diseases.covid
+        assert sim.results['new_doses'][0] == len(d.vaccinated.uids), 'historical doses are counted on day 0'
         return d.vaccinated.uids, np.asarray(d.nab[d.vaccinated.uids])
     vacc, nab360 = run(-360)
     _, nab30 = run(-30)

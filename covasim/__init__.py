@@ -32,3 +32,4 @@ from .sim           import * # Depends on almost everything
 from .analysis      import * # Depends on sim
 from .run           import * # Depends on sim
 from .              import data # The demographic data
+from .regression    import migrate3to4 # The script for migrating v3 code to v4

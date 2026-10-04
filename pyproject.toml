@@ -69,6 +69,9 @@ docs = [
 ]
 dev = ["covasim[test,docs]"]
 
+[project.scripts]
+covasim-migrate3to4 = "covasim.regression.migrate3to4:main"
+
 [project.urls]
 Homepage = "https://covasim.org"
 Documentation = "https://docs.covasim.org"

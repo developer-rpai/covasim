@@ -392,7 +392,7 @@ class COVID(ss.Infection):
         peak = np.asarray(self.peak_nab[uids], dtype=float)
         nab = np.zeros(len(uids))
         kin = self.nab_kin
-        for i in range(offset + 1):  # replay the connector's clamped accumulation event -> now
+        for i in range(offset - 1):  # replay the connector's clamped accumulation from the event to two days ago (the connector applies yesterday's update on each step)
             nab = np.clip(nab + kin[i] * peak, 0.0, peak)
         self.nab[uids] = nab
         self.t_nab_event[uids] = int(event_day)
@@ -501,12 +501,8 @@ class COVID(ss.Infection):
         self.ti_dead[dead] = self.ti_critical[dead] + p.dur_crit2die.rvs(dead)
         # (ti_recovered for `dead` stays NaN from the defensive reset -- death and recovery are exclusive)
 
-        # Per-variant flows, counted AT INFECTION (the v3 quirk: new_{infections,symptomatic,severe}
-        # _by_variant are destined counts recorded in infect(); new_infectious_by_variant is counted
-        # at the infectious transition instead, in step_state).
+        # Count the new infections by variant; the other flows by variant are counted when they happen, in step_state()
         self._flow_variant['new_infections']  += np.bincount(var_of,           minlength=self.nv)
-        self._flow_variant['new_symptomatic'] += np.bincount(var_of[is_symp],  minlength=self.nv)
-        self._flow_variant['new_severe']      += np.bincount(var_of[is_symp][is_sev], minlength=self.nv)
 
         # Precompute the per-agent viral-load high->low switch time (v3 compute_viral_load trans_point).
         # End of the infectious period = recovery or death date (whichever is set).
@@ -514,7 +510,7 @@ class COVID(ss.Infection):
         end = np.where(np.isnan(ti_dead), self.ti_recovered[uids], ti_dead)
         infect_days = end - self.ti_infectious[uids]
         vd = p.viral_dist
-        trans_point = np.minimum(vd['frac_time'], vd['high_cap'] / infect_days)  # cap the high phase at high_cap days
+        trans_point = np.minimum(vd['frac_time'], vd['high_cap'] / infect_days)  # cap the high phase at high_cap days (v3 had an extra day in some cases, due to rounding; see the migration rules)
         self.ti_vl_switch[uids] = self.ti_infectious[uids] + trans_point * infect_days
 
         # NAb acquisition + breakthrough transmissibility (only with waning immunity)
@@ -660,14 +656,13 @@ class COVID(ss.Infection):
         bucket.append((ss.uids(uids), start_date + period))
         return
 
-    def vaccinate_agents(self, uids, label, index, count=True):
+    def vaccinate_agents(self, uids, label, index):
         """Apply a vaccine dose to ``uids`` (the NAb side of the v3 ``BaseVaccination.vaccinate``).
 
         Sets the vaccination state and confers/boosts peak NAb via the vaccine's ``nab_init``/
         ``nab_boost`` (the same NAb pipeline as natural infection). The intervention is responsible for selecting/
         de-duplicating ``uids`` (skipping dead / already-fully-dosed); this just applies the dose.
-        ``label``/``index`` identify the vaccine in ``vaccine_pars``/``vaccine_map``. If ``count=False``
-        (e.g. for historical doses, before the sim starts), the doses are not counted in the results.
+        ``label``/``index`` identify the vaccine in ``vaccine_pars``/``vaccine_map``.
         """
         uids = ss.uids(np.unique(np.asarray(uids)))
         if not len(uids):
@@ -678,8 +673,7 @@ class COVID(ss.Infection):
         self.doses[uids] = self.doses[uids] + 1
         self.date_vaccinated[uids] = self.ti
         self._update_peak_nab(uids, nab_pars=self.vaccine_pars[label])
-        if count:
-            self.count_doses(uids, prior_vacc)
+        self.count_doses(uids, prior_vacc)
         return uids
 
     @property
@@ -776,10 +770,6 @@ class COVID(ss.Infection):
             self._test_flow = dict(tests=0, diagnoses=0)
         self._test_flow['tests'] = 0
         self._test_flow['diagnoses'] = 0
-        if not hasattr(self, '_vacc_flow'):
-            self._vacc_flow = dict(doses=0, vaccinated=0)
-        self._vacc_flow['doses'] = 0
-        self._vacc_flow['vaccinated'] = 0
         self._introduce_variants()  # seed any variant introductions scheduled for this day
         # preinfectious -> infectious: tag infectious_variant from exposed_variant (v3 check_infectious),
         # count new_infectious_by_variant, then clear the `preinfectious` flag. The gate is `preinfectious &
@@ -800,6 +790,8 @@ class COVID(ss.Infection):
         self.symptomatic[new_symp] = True
         new_sev = (self.infected & ~self.severe & (self.ti_severe <= ti)).uids
         self.severe[new_sev] = True
+        self._flow_variant['new_symptomatic'] += np.bincount(self.exposed_variant[new_symp].astype(int), minlength=self.nv) # v3 counted these by variant on the day of infection rather than when they happened
+        self._flow_variant['new_severe']      += np.bincount(self.exposed_variant[new_sev].astype(int), minlength=self.nv)
         new_crit = (self.infected & ~self.critical & (self.ti_critical <= ti)).uids
         self.critical[new_crit] = True
         # -> recovered (clear the stage flags; tag recovered_variant; clear active-infection variant
@@ -881,11 +873,13 @@ class COVID(ss.Infection):
 
         self.define_results(
             R('n_infectious',  'Number infectious'),  # infectious is a property, not auto-counted
+            R('new_infectious',  'New infectious'),
             R('new_symptomatic', 'New symptomatic'),
             R('new_severe',      'New severe'),
             R('new_critical',    'New critical'),
             R('new_recoveries',  'New recoveries'),
             R('new_deaths',      'New deaths'),
+            R('cum_infectious',  'Cumulative infectious'),
             R('cum_symptomatic', 'Cumulative symptomatic'),
             R('cum_severe',      'Cumulative severe'),
             R('cum_critical',    'Cumulative critical'),
@@ -955,6 +949,7 @@ class COVID(ss.Infection):
         res = self.results
         res.n_infectious[ti] = int(np.count_nonzero(self.infectious))
         # Flows (captured this timestep in step_state)
+        res.new_infectious[ti]  = self._flow_variant['new_infectious'].sum()
         res.new_symptomatic[ti] = self._flow['symptomatic']
         res.new_severe[ti]      = self._flow['severe']
         res.new_critical[ti]    = self._flow['critical']
@@ -967,6 +962,7 @@ class COVID(ss.Infection):
         res.new_diagnoses[ti]   = self._test_flow['diagnoses']
         res.new_doses[ti]       = self._vacc_flow['doses']      # vaccination flows
         res.new_vaccinated[ti]  = self._vacc_flow['vaccinated']
+        self._vacc_flow = dict(doses=0, vaccinated=0) # Reset here rather than at the start of the step, so historical doses (given when the sim is initialized) are counted on day 0, as in v3
         # Quarantine flow + test yield (the quarantine STOCK n_quarantined is auto-counted by Starsim).
         res.new_quarantined[ti] = int(np.count_nonzero(np.asarray(self.date_quarantined.raw) == ti))
         n_tests = self._test_flow['tests']
@@ -996,6 +992,7 @@ class COVID(ss.Infection):
         """Cumulate the daily flows into the cum_* results, and finalize the by-variant results."""
         super().finalize_results()
         res = self.results
+        res.cum_infectious[:]  = np.cumsum(res.new_infectious[:])
         res.cum_symptomatic[:] = np.cumsum(res.new_symptomatic[:])
         res.cum_severe[:]      = np.cumsum(res.new_severe[:])
         res.cum_critical[:]    = np.cumsum(res.new_critical[:])
@@ -1036,12 +1033,13 @@ class COVID(ss.Infection):
         # initial seed period averaged so it isn't dominated by the seeds). A diagnostic, not a driver.
         self._compute_r_eff(res)
 
-        # Compute the by-variant rates (as in v3, prevalence_by_variant is new_infections_by_variant / n_alive)
+        # Compute the by-variant rates (v3 used the new infections for the prevalence by variant, rather than the number infected)
         n_alive = np.asarray(self.sim.results.n_alive, dtype=float)[:, None]
         n_susc = np.asarray(res.n_susceptible, dtype=float)[:, None]
         new_inf = np.asarray(res.new_infections_by_variant, dtype=float)
+        n_exposed = np.asarray(res.n_exposed_by_variant, dtype=float)
         res.incidence_by_variant[:]  = np.divide(new_inf, n_susc,  out=np.zeros_like(new_inf), where=n_susc > 0)
-        res.prevalence_by_variant[:] = np.divide(new_inf, n_alive, out=np.zeros_like(new_inf), where=n_alive > 0)
+        res.prevalence_by_variant[:] = np.divide(n_exposed, n_alive, out=np.zeros_like(n_exposed), where=n_alive > 0)
         return
 
     def shrink(self):

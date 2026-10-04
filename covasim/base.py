@@ -116,8 +116,7 @@ class Contacts(FlexDict):
             if not isinstance(layer, ss.Network):
                 layer = Layer(edges=layer, label=lkey)
             layer.name = lkey
-            if len(layer.edges): # Networks that create their own edges (e.g. ss.RandomNet) don't have any yet
-                layer.validate()
+            layer.validate()
             self[lkey] = layer
             if self.sim is not None:
                 self.sim._add_network(layer)

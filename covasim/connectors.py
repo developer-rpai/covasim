@@ -61,13 +61,17 @@ class CrossImmunity(ss.Connector):
     def _advance_nab(covid, ti):
         """Step every agent's NAb level forward along the precomputed kinetic kernel (v3 update_nab).
 
-        ``nab += nab_kin[ti − t_nab_event] × peak_nab``, clamped to ``[0, peak_nab]``. The kernel index
+        ``nab += nab_kin[ti − 1 − t_nab_event] × peak_nab``, clamped to ``[0, peak_nab]``. The kernel index
         is clamped to the kernel length so long horizons (or post-peak agents) stay in range.
+
+        v3 updated the NAbs at the end of each timestep, after that day's infections and vaccinations, so the
+        first update (index 0) was on the day of the event. This runs before them, so it applies yesterday's
+        update: the NAbs used for today's immunity are then the same as in v3.
         """
-        nab_uids = (covid.t_nab_event <= ti).uids  # agents with a past NAb event (NaN <= ti is False)
+        nab_uids = (covid.t_nab_event < ti).uids  # agents with a NAb event before today (NaN < ti is False)
         if not len(nab_uids):
             return
-        t_since = (ti - np.asarray(covid.t_nab_event[nab_uids])).astype(int)
+        t_since = (ti - 1 - np.asarray(covid.t_nab_event[nab_uids])).astype(int)
         t_since = np.clip(t_since, 0, len(covid.nab_kin) - 1)
         peak = np.asarray(covid.peak_nab[nab_uids])
         new = np.asarray(covid.nab[nab_uids]) + covid.nab_kin[t_since] * peak

@@ -197,7 +197,7 @@ class V3Sim:
                     errormsg = f'Cannot remove or replace {key} after the sim has been initialized; they can only be added'
                     raise RuntimeError(errormsg)
                 for mod in new:
-                    self._add_module(mod, key)
+                    self.add_module(mod, key)
         elif key == 'beta':
             covid.pars.beta = value if isinstance(value, (dict, ss.Rate)) else ss.probperday(value)
         elif key in ['pop_type', 'contacts']: # Recreate the networks (and for pop_type, the per-layer parameters)
@@ -302,29 +302,8 @@ class V3Sim:
         if self.ti > 0:
             errormsg = f'Cannot add network "{network.name}" since the sim has already started running'
             raise RuntimeError(errormsg)
-        self._add_module(network, 'networks')
+        self.add_module(network, 'networks')
         self.reset_layer_pars() # Use the default beta_layer etc. for this network, unless already set
-        return
-
-    def _add_module(self, module, key):
-        ''' Add a module (e.g. an intervention) to a sim that has already been initialized, and possibly run part-way; Starsim only adds modules when the sim is initialized '''
-        if self.complete:
-            errormsg = f'Cannot add {key} to a sim that has already been run'
-            raise RuntimeError(errormsg)
-        names = {mod.name:key for mod in self.modules} # Make the name unique, as Starsim does on initialization
-        ss.SimPars.validate_name(module, key, names)
-        getattr(self, key)[module.name] = module
-        module.init_pre(self)
-        self.dists.init(obj=self) # Initialize the module's distributions, if any (the others are already initialized)
-        self.dists.copy_to_module(module)
-        if key == 'networks':
-            module.init_post(add_pairs=not len(module)) # Only create edges if none were supplied
-        else:
-            module.init_post()
-        ti = self.ti
-        module.t.ti = ti # The module's own time index starts at 0
-        self.loop.init() # Add the module to the integration loop...
-        self.loop.index = [entry.ti for entry in self.loop.plan].index(ti) # ...and continue from the start of the current timestep
         return
 
     def result_keys(self, which='main'):
@@ -442,7 +421,7 @@ class V3Sim:
     def shrink(self, skip_attrs=None, in_place=True, inplace=None, **kwargs):
         ''' v3: in_place rather than inplace; skip_attrs is ignored '''
         kwargs.setdefault('die', False) # v3 never raised an error on shrinking
-        kwargs.setdefault('base_size', 150) # Starsim's default allows 30 KB per module, but the COVID module has about 100 KB of parameters and distributions
+        kwargs.setdefault('base_size', 150) # Starsim's default allows 30 KB per module plus 1 KB per timestep, but the COVID module has about 40 KB of parameters and distributions, and its results by variant can be more than 1 KB per timestep
         sim = super().shrink(inplace=in_place if inplace is None else inplace, **kwargs)
         sim._orig_sim = None # Remove the copy of the sim before it was initialized, which includes the people if supplied
         return sim
@@ -542,7 +521,7 @@ class V3People:
         return diseases.get('covid') if diseases is not None else None
 
     def _v3_all(self, state):
-        ''' A view of the state over all agents ever created, alive or dead, rather than only those alive (as ss.Filter does for a subset); used for people.dead and people.date_dead '''
+        ''' A view of the state over all agents ever created, alive or dead, rather than only those alive (as ss.Filter does for a subset); used for people.date_dead, as Starsim does for people.dead '''
         if not self.initialized: # Before initialization, there are no agents yet
             return state
         view = object.__new__(state.__class__)
@@ -565,11 +544,6 @@ class V3People:
                 return state
         errormsg = f"'{self.__class__.__name__}' object has no attribute '{key}'"
         raise AttributeError(errormsg)
-
-    @property
-    def dead(self):
-        ''' v3: whether each agent ever created has died; unlike the other arrays, this includes agents who have died (otherwise it would always be false) '''
-        return self._v3_all(~self.alive)
 
     @property
     def sex(self):

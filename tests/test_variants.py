@@ -75,6 +75,14 @@ def test_nv1_by_variant_equals_aggregate():
         assert np.allclose(cum, np.cumsum(new) + seeds), f'cum_{stem}_by_variant must be cumsum(new)'
 
 
+def test_by_variant_sums_to_total():
+    """With more than one variant, the results by variant add up to the totals (v3 counted some of these differently)."""
+    sim = cv.Sim(pop_size=5000, pop_infected=100, n_days=60, verbose=0, variants=cv.variant('delta', days=10, n_imports=50)).run()
+    r = sim.diseases.covid.results
+    for key in ['new_infections', 'new_infectious', 'new_symptomatic', 'new_severe', 'n_exposed', 'n_infectious', 'prevalence', 'incidence']:
+        assert np.allclose(_arr(r[f'{key}_by_variant']).sum(axis=1), _arr(r[key])), f'{key}_by_variant must sum to {key}'
+
+
 def test_immunity_arrays_allocated_zero():
     """The 2D immunity arrays have one column per variant, and are all zero (no effect at nv==1)."""
     sim = _run(n_days=20)

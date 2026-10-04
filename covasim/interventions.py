@@ -850,7 +850,7 @@ class historical_vaccinate_prob(vaccinate_prob):
         if not len(chosen):
             return
         self._doses[np.asarray(chosen)] += 1
-        covid.vaccinate_agents(chosen, self.label, self.index, count=False)  # sets vaccinated/source/doses/peak NAb; as in v3, historical doses aren't counted
+        covid.vaccinate_agents(chosen, self.label, self.index)  # sets vaccinated/source/doses/peak NAb, and counts the doses (on day 0, as in v3)
         covid.imprint_historical_nab(chosen, day)               # decay the peak NAb from `day` to t=0
         return
 
@@ -891,7 +891,6 @@ class historical_wave(Intervention):
         self.variants  = self._per_wave('wild' if variant is None else variant, n_waves)
         self._select = [ss.bernoulli(p=0.0) for wave in range(n_waves)] # Who is infected in each wave
         self._timing = [cvcovid.v3_durs(dict(wave=wave_dist))['dur_wave'] for wave_dist in self.dist] # When they are infected, in whole days
-        self.seeds = None # The seed infections, which are reset before the wave and infected again afterwards
         self.day0_flows = {} # Counts of infections etc. before the start of the sim, which are added to the results on day 0
         self.day0_flows_variant = {}
         return
@@ -926,11 +925,9 @@ class historical_wave(Intervention):
         covid = self._covid()
         mapping = {label:ind for ind,label in covid.variant_map.items()}
 
-        # As in v3, reset the seed infections, so they can be part of the wave; they are infected again in step()
-        self.seeds = (covid.ti_exposed == 0).uids
-        covid.make_naive(self.seeds)
         flows_variant_before = {key:val.copy() for key,val in covid._flow_variant.items()}
         flows = dict(reinfections=-covid._flow['reinfections'], symptomatic=0, severe=0, critical=0, recoveries=0)
+        flows_variant = dict(new_symptomatic=np.zeros(covid.nv), new_severe=np.zeros(covid.nv))
 
         # Infect the people in each wave
         dates = [covid.ti_infected, covid.ti_exposed, covid.ti_infectious, covid.ti_symptomatic, covid.ti_severe, covid.ti_critical, covid.ti_recovered, covid.ti_dead, covid.ti_vl_switch]
@@ -945,7 +942,7 @@ class historical_wave(Intervention):
             uids = alive[self._select[wave].rvs(alive)]
             days = self._timing[wave].rvs(uids) - days_prior
             before_start = days <= 0 # As in v3, skip infections that would be after the start of the sim
-            susceptible = covid.susceptible[uids] | (covid.ti_recovered[uids] <= days) # Not infected in an earlier wave, or have since recovered
+            susceptible = covid.susceptible[uids] | (covid.ti_recovered[uids] <= days) # Not infected in an earlier wave, or have since recovered; this also excludes the seed infections (v3 included them, then infected them again, which counted them twice)
             keep = before_start & susceptible
             uids, days = uids[keep], days[keep]
             reinfected = uids[~covid.susceptible[uids]] # Infected in an earlier wave: count those outcomes now, since they are replaced by the new infection
@@ -953,6 +950,8 @@ class historical_wave(Intervention):
             flows['severe']      += np.count_nonzero(covid.ti_severe.notnan[reinfected])
             flows['critical']    += np.count_nonzero(covid.ti_critical.notnan[reinfected])
             flows['recoveries']  += len(reinfected)
+            flows_variant['new_symptomatic'] += np.bincount(covid.exposed_variant[reinfected[covid.ti_symptomatic.notnan[reinfected]]].astype(int), minlength=covid.nv)
+            flows_variant['new_severe']      += np.bincount(covid.exposed_variant[reinfected[covid.ti_severe.notnan[reinfected]]].astype(int), minlength=covid.nv)
             if not len(uids):
                 warnmsg = f'Wave with days_prior of {days_prior} and prob of {self.prob[wave]} did not result in any historical infections - skipping this wave'
                 cvm.warn(warnmsg)
@@ -969,18 +968,17 @@ class historical_wave(Intervention):
         # Store the counts to add to the results in step(), since the COVID module resets them when it updates the states
         flows['reinfections'] += covid._flow['reinfections']
         self.day0_flows = flows
-        self.day0_flows_variant = {key:val - flows_variant_before[key] for key,val in covid._flow_variant.items()}
+        self.day0_flows_variant = {key:val - flows_variant_before[key] + flows_variant.get(key, 0) for key,val in covid._flow_variant.items()}
         return
 
     def step(self):
-        """As in v3, count the infections before the start of the sim in the results on day 0, and infect the seed infections again"""
+        """As in v3, count the infections before the start of the sim in the results on day 0"""
         if self.ti == 0:
             covid = self._covid()
             for key,val in self.day0_flows.items():
                 covid._flow[key] += val
             for key,val in self.day0_flows_variant.items():
                 covid._flow_variant[key] += val
-            self.sim.people.infect(self.seeds, layer='seed_infection') # Those who are susceptible, i.e. not still infected from the wave
         return
 
 

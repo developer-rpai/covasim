@@ -147,17 +147,6 @@ class MultiSim(cvc.V3MultiSim, ss.MultiSim):
 
         return self
 
-    def shrink(self, die=False, **kwargs):
-        '''
-        Not to be confused with reduce(), this shrinks each sim in the msim;
-        see sim.shrink() for more information.
-
-        Args:
-            die (bool): whether to raise an exception if a sim can't be fully shrunk (default False, as in v3)
-            kwargs (dict): passed to sim.shrink() for each sim
-        '''
-        return super().shrink(die=die, **kwargs)
-
     def reduce(self, *args, output=False, **kwargs):
         '''
         Combine multiple sims into a single sim statistically: by default, use
@@ -481,8 +470,8 @@ class MultiSim(cvc.V3MultiSim, ss.MultiSim):
             print('Note: saving people, which may produce a large file!')
         else:
             if obj.base_sim.initialized: # Nothing to shrink otherwise
-                obj.base_sim.shrink(in_place=True, die=False)
-            obj.sims = [sim.shrink(in_place=False, die=False) for sim in sims]
+                obj.base_sim.shrink(in_place=True)
+            obj.sims = [sim.shrink(in_place=False) for sim in sims]
 
         cvm.save(filename=msimfile, obj=obj) # Actually save
 
@@ -905,7 +894,7 @@ class Scenarios(cvc.V3Scenarios):
 
         obj = sc.dcp(self) # This should be quick once we've removed the sims
         if not keep_people and obj.base_sim.initialized: # Nothing to shrink otherwise
-            obj.base_sim.shrink(in_place=True, die=False)
+            obj.base_sim.shrink(in_place=True)
 
         if keep_sims or keep_people:
             if keep_people:
@@ -917,7 +906,7 @@ class Scenarios(cvc.V3Scenarios):
             else:
                 obj.sims = sc.objdict()
                 for key in sims.keys():
-                    obj.sims[key] = [sim.shrink(in_place=False, die=False) for sim in sims[key]]
+                    obj.sims[key] = [sim.shrink(in_place=False) for sim in sims[key]]
 
         cvm.save(filename=scenfile, obj=obj) # Actually save
 
