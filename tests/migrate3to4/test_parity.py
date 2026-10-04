@@ -1,4 +1,4 @@
-'''
+"""
 Check that v4 gives the same results as v3, on average
 
 Each test runs several seeds of a v4 sim, and compares the mean of each result
@@ -7,7 +7,7 @@ seed-by-seed, since v3 and v4 use different random number streams. A result
 fails if it differs by more than z_threshold standard errors.
 
 To regenerate the v3 results, see the README.
-'''
+"""
 
 #%% Imports and settings
 import sys
@@ -28,7 +28,7 @@ not_results = ['_seed', '_total_pop', 'n_alive'] # Keys in the summaries that ar
 #%% Define the tests
 
 def check_parity(name, anchor, summary, v3_name=None, z_threshold=5.0, skip=None):
-    '''
+    """
     Compare v4 with v3 for the random and hybrid populations
 
     Args:
@@ -38,7 +38,7 @@ def check_parity(name, anchor, summary, v3_name=None, z_threshold=5.0, skip=None
         v3_name     (str):    the name of the v3 results file, if different from the feature
         z_threshold (float):  how many standard errors v4 can differ from v3 by; 5 allows differences of a few percent, which are expected since the random numbers differ
         skip        (list):   results that are known to differ, so aren't checked
-    '''
+    """
     sc.heading(f'Checking v3 vs. v4: {name}')
     skip = set(sc.mergelists(skip, not_results))
     v4_rows = None
@@ -95,7 +95,7 @@ def test_parity_gate():
     sc.heading('Testing the function that compares v3 and v4')
 
     def rows(values):
-        ''' Make one summary per seed '''
+        """ Make one summary per seed """
         return [dict(cum_infections=value, _seed=seed) for seed,value in enumerate(values)]
 
     v3      = rows([100, 102, 98, 101])

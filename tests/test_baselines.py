@@ -22,11 +22,11 @@ cv.options.set(interactive=False) # Assume not running interactively
 
 
 def make_sim(use_defaults=False, do_plot=False, **kwargs):
-    '''
+    """
     Define a default simulation for testing the baseline -- use hybrid and include
     interventions to increase coverage. If run directly (not via pytest), also
     plot the sim by default.
-    '''
+    """
 
     # Define the interventions
     tp = cv.test_prob(start_day=20, symp_prob=0.1, asymp_prob=0.01)
@@ -63,10 +63,10 @@ def make_sim(use_defaults=False, do_plot=False, **kwargs):
 
 
 def save_baseline():
-    '''
+    """
     Refresh the baseline results. This function is not called during standard testing,
     but instead is called by the update_baseline script.
-    '''
+    """
 
     print('Updating baseline values...')
 
@@ -85,7 +85,7 @@ def save_baseline():
 
 
 def test_baseline():
-    ''' Compare the current default sim against the saved baseline '''
+    """ Compare the current default sim against the saved baseline """
 
     # Load existing baseline
     baseline = sc.loadjson(baseline_filename)
@@ -102,7 +102,7 @@ def test_baseline():
 
 
 def test_benchmark(do_save=do_save, repeats=1, verbose=True):
-    ''' Compare benchmark performance '''
+    """ Compare benchmark performance """
 
     if verbose: print('Running benchmark...')
     previous = sc.loadjson(benchmark_filename)
@@ -111,7 +111,7 @@ def test_benchmark(do_save=do_save, repeats=1, verbose=True):
     t_runs  = []
 
     def normalize_performance():
-        ''' Normalize performance across CPUs -- simple Numpy calculation '''
+        """ Normalize performance across CPUs -- simple Numpy calculation """
         t_bls = []
         bl_repeats = 3
         n_outer = 10

@@ -35,7 +35,7 @@ def base():
     return _cache['sim']
 
 def dead():
-    ''' A sim with deaths, to check that dead agents stay in the arrays, as in v3 '''
+    """ A sim with deaths, to check that dead agents stay in the arrays, as in v3 """
     if 'dead' not in _cache:
         _cache['dead'] = rs(pop_infected=200, n_days=60, rel_death_prob=10)
         assert _cache['dead'].results['cum_deaths'][-1] > 0

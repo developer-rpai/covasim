@@ -1,6 +1,6 @@
-'''
+"""
 Tests for run options (multisims and scenarios)
-'''
+"""
 
 #%% Imports and settings
 import os
@@ -74,6 +74,11 @@ def test_multisim_reduce(do_plot=do_plot): # If being run via pytest, turn off
     sim = cv.Sim(pop_size=pop_size, pop_infected=pop_infected)
     msim = cv.MultiSim(sim, n_runs=n_runs, noise=0.1)
     msim.run(verbose=verbose, reduce=True)
+
+    # The best estimate is between the low and high bounds
+    res = msim.results['cum_infections']
+    assert np.all(res.low <= res.values) and np.all(res.values <= res.high)
+    assert res.low[-1] < res.high[-1] # The runs are different, so the bounds are too
 
     if do_plot:
         msim.plot()

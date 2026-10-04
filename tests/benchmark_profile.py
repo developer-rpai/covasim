@@ -1,6 +1,6 @@
-'''
+"""
 Benchmark the simulation
-'''
+"""
 
 import sciris as sc
 import covasim as cv

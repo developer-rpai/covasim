@@ -1,7 +1,7 @@
-'''
+"""
 Check that correct versions of each library are installed, and print warnings
 or errors if not.
-'''
+"""
 
 #%% Housekeeping
 
@@ -13,7 +13,7 @@ min_versions = {'sciris':'2.0.1'} # Should match requirements.txt
 #%% Check dependencies
 
 def check_sciris():
-    ''' Check that Sciris is available and the right version '''
+    """ Check that Sciris is available and the right version """
     try:
         import sciris as sc
     except ModuleNotFoundError: # pragma: no cover

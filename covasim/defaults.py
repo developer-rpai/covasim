@@ -1,10 +1,10 @@
-'''
+"""
 Set the defaults across each of the different files.
 
 To change the default precision from 32 bit (default) to 64 bit, use::
 
     cv.options.set(precision=64)
-'''
+"""
 
 import numpy as np
 import numba as nb
@@ -35,7 +35,7 @@ else:
 #%% Define all properties of people
 
 class PeopleMeta(sc.prettyobj):
-    ''' For storing all the keys relating to a person and people '''
+    """ For storing all the keys relating to a person and people """
 
     def __init__(self):
 
@@ -244,11 +244,11 @@ default_age_data = np.array([
 
 
 def get_default_colors():
-    '''
+    """
     Specify plot colors -- used in sim.py.
 
     NB, includes duplicates since stocks and flows are named differently.
-    '''
+    """
     c = sc.objdict()
     c.susceptible           = '#4d771e'
     c.exposed               = '#c78f65'
@@ -324,12 +324,12 @@ overview_variant_plots = [
 ]
 
 def get_default_plots(which='default', kind='sim', sim=None):
-    '''
+    """
     Specify which quantities to plot; used in sim.py.
 
     Args:
         which (str):  'default' or 'overview' or 'all' or 'seir'
-    '''
+    """
     which = str(which).lower() # To make comparisons easier
 
     # Check that kind makes sense
