@@ -1,6 +1,6 @@
-'''
+"""
 Test that the parameters and data files are being created correctly.
-'''
+"""
 
 #%% Imports
 import os

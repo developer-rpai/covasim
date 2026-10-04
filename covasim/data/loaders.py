@@ -1,6 +1,6 @@
-'''
+"""
 Load data
-'''
+"""
 
 #%% Housekeeping
 import numpy as np
@@ -13,7 +13,7 @@ __all__ = ['get_country_aliases', 'map_entries', 'show_locations', 'get_age_dist
 
 
 def get_country_aliases():
-    ''' Define aliases for countries with odd names in the data '''
+    """ Define aliases for countries with odd names in the data """
     country_mappings = {
        'Bolivia':        'Bolivia (Plurinational State of)',
        'Burkina':        'Burkina Faso',
@@ -47,13 +47,13 @@ def get_country_aliases():
 
 
 def map_entries(json, location):
-    '''
+    """
     Find a match between the JSON file and the provided location(s).
 
     Args:
         json (list or dict): the data being loaded
         location (list or str): the list of locations to pull from
-    '''
+    """
 
     # The data have slightly different formats: list of dicts or just a dict
     countries = [key.lower() for key in json.keys()]
@@ -89,7 +89,7 @@ def map_entries(json, location):
 
 
 def show_locations(location=None, output=False):
-    '''
+    """
     Print a list of available locations.
 
     Args:
@@ -101,7 +101,7 @@ def show_locations(location=None, output=False):
         cv.data.show_locations() # Print a list of valid locations
         cv.data.show_locations('lithuania') # Check if Lithuania is a valid location
         cv.data.show_locations('Viet-Nam') # Check if Viet-Nam is a valid location
-    '''
+    """
     country_json   = sc.dcp(cad.data)
     state_json     = sc.dcp(sad.data)
     aliases        = get_country_aliases()
@@ -135,7 +135,7 @@ def show_locations(location=None, output=False):
 
 
 def get_age_distribution(location=None):
-    '''
+    """
     Load age distribution for a given country or countries.
 
     Args:
@@ -143,7 +143,7 @@ def get_age_distribution(location=None):
 
     Returns:
         age_data (array): Numpy array of age distributions, or dict if multiple locations
-    '''
+    """
 
     # Load the raw data
     country_json   = sc.dcp(cad.data)
@@ -173,7 +173,7 @@ def get_age_distribution(location=None):
 
 
 def get_household_size(location=None):
-    '''
+    """
     Load household size distribution for a given country or countries.
 
     Args:
@@ -181,7 +181,7 @@ def get_household_size(location=None):
 
     Returns:
         house_size (float): Size of household, or dict if multiple locations
-    '''
+    """
     # Load the raw data
     json = sc.dcp(hsd.data)
 

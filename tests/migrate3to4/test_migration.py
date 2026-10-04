@@ -1,7 +1,8 @@
-'''
+"""
 Test the script for migrating v3 code to v4
-'''
+"""
 
+import tempfile
 import sciris as sc
 import covasim as cv
 
@@ -57,6 +58,7 @@ if __name__ == '__main__':
     T = sc.tic()
 
     new = test_migrate_code()
+    out = test_migrate_file(sc.path(tempfile.mkdtemp()))
 
     sc.toc(T)
     print('Done.')

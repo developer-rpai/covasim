@@ -1,6 +1,6 @@
-'''
+"""
 Tests of the numerical utilities for the model.
-'''
+"""
 
 #%% Imports and settings
 import pytest
