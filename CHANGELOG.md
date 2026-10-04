@@ -48,7 +48,6 @@ This release changes Covasim from a standalone library to one built on the [Star
 
 #### Changes to results and analyzers
 
-- The keys of `sim.summary` have the module name as a prefix (e.g. `covid_cum_deaths`), but can also be used without it.
 - Results by variant now have time as the first axis, i.e. shape `(npts, n_variants)` rather than `(n_variants, npts)`. They are now included in `sim.to_df()`, `msim.reduce()` etc.
 - Results that are not time series have moved from `sim.results` to the sim: `sim.gen_time`, `sim.transtree` and `sim.agehist`. Likewise, `daily_age_stats.results` is now `daily_age_stats.age_results`.
 - The transmission log is always recorded, so `sim.make_transtree()` works after any run. It is stored as an `ss.InfectionLog` in `sim.diseases.covid.infection_log`; `sim.people.infection_log` returns it in the v3 format.
