@@ -39,7 +39,7 @@ def make_sim(do_save=False, **kwargs):
 
 @pytest.mark.skip(reason='Retired in v4.0: the v1.7.0 example_regression.sim pickle predates the '
                          'Starsim object model and cannot be unpickled. The v4 regression guard is '
-                         'the multi-seed parity gate (tests/regression/) + test_baselines.py.')
+                         'the multi-seed parity gate (tests/migrate3to4/) + test_baselines.py.')
 def test_regression():
     sc.heading('Testing regression...')
 

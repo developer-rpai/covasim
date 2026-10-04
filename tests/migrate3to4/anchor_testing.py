@@ -5,7 +5,7 @@ intervention and a ``contact_tracing`` intervention -- so it exercises diagnoses
 traced-contact quarantine. Same public intervention API in v3.1.8 and v4, so one anchor serves both
 the baseline and the gate (duck-typed on cv.COVID).
 
-Run as a script:  python tests/regression/anchor_testing.py
+Run as a script:  python tests/migrate3to4/anchor_testing.py
 """
 import sys
 from pathlib import Path

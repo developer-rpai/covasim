@@ -5,9 +5,9 @@ Runs N v4 seeds of the multi-variant anchor (random and hybrid) and gates each p
 (cum_infections/cum_deaths/peak_n_infectious/peak_prevalence) AND the per-variant
 counts (cum_infections_<v> / peak_n_infectious_<v> for wild/alpha/delta). Skips
 cleanly when the baseline is absent (generate it from a frozen v3.1.8 env -- see
-tests/regression/README.md). Marked slow so the fast PR job skips it:
+tests/migrate3to4/README.md). Marked slow so the fast PR job skips it:
 
-    cd tests && pytest test_parity_variants.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_variants.py -m slow -v
 
 DOCUMENTED DIVERGENCE. The static cross-immunity path is the NAb-free matrix; v3 routes cross-immunity through the NAb machinery (calc_VE on
 the per-agent neutralizing-antibody titre). Two consequences are intended, NOT regressions:
@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor_variants import make_sim  # noqa: E402
-from regression.short_summary import build_summary_variants, METRIC_KEYS_VARIANTS  # noqa: E402
-from regression.parity import parity_gate, _mean_se  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor_variants import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary_variants, METRIC_KEYS_VARIANTS  # noqa: E402
+from migrate3to4.parity import parity_gate, _mean_se  # noqa: E402
 
 N_V4_SEEDS = 10
 M_V3_SEEDS = 30
@@ -49,12 +49,12 @@ GATED_KEYS = ('cum_infections_wild', 'peak_n_infectious', 'peak_prevalence')
 # delta (matrix[delta,wild]=0.374, so v4 wild-recovered are only ~37% protected and delta finds a
 # large susceptible pool), giving v4 ~7-10x more delta and ~55% more total infections than v3
 # (|z| up to ~46). This is the documented static-vs-NAb divergence; the NAb engine re-converges
-# these (see test_parity_waning.py and tests/regression/README.md).
+# these (see test_parity_waning.py and tests/migrate3to4/README.md).
 INFORMATIONAL_KEYS = tuple(k for k in METRIC_KEYS_VARIANTS if k not in GATED_KEYS)
 
 
 def _baseline_path(pop_type):
-    return Path(__file__).parent / 'regression' / f'v3_variants_{pop_type}_seeds_n{M_V3_SEEDS}.json'
+    return Path(__file__).parent / f'v3_variants_{pop_type}_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(pop_type, n):
@@ -73,7 +73,7 @@ def test_variants_parity(pop_type):
     if not baseline.exists():
         pytest.skip(
             f'Missing v3.1.8 variants baseline at {baseline}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --anchor variants_{pop_type} --n {M_V3_SEEDS}` '
+            f'`python tests/migrate3to4/multi_seed_v3.py --anchor variants_{pop_type} --n {M_V3_SEEDS}` '
             f'from a frozen v3.1.8 covasim env.'
         )
     v3_rows = json.loads(baseline.read_text())

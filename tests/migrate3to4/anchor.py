@@ -9,7 +9,7 @@ Pinned anchor pars. Do NOT change without coordinating with the gitignored
 v3.1.8 baselines (regenerate them via multi_seed_v3.py if you do).
 
 Run as a script to print the summary:
-    python tests/regression/anchor.py
+    python tests/migrate3to4/anchor.py
 """
 import sys
 from pathlib import Path

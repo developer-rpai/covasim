@@ -4,7 +4,7 @@
 vaccine -> NAb -> protection path. Same public vaccination API in v3.1.8 and v4 (duck-typed on
 cv.COVID), so one anchor serves both the baseline and the gate.
 
-Run as a script:  python tests/regression/anchor_vaccination.py
+Run as a script:  python tests/migrate3to4/anchor_vaccination.py
 """
 import sys
 from pathlib import Path

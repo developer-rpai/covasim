@@ -5,7 +5,7 @@ Fast unit + smoke tests for the harness machinery:
   - parity_gate unit tests
   - compute_drift unit tests
 
-The heavy multi-seed z-score release gate lives in tests/test_parity_anchor.py.
+The heavy multi-seed z-score release gate lives in tests/migrate3to4/test_parity_anchor.py.
 """
 
 import sys
@@ -14,12 +14,12 @@ from pathlib import Path
 import pytest
 
 # tests/ is on sys.path when pytest runs from tests/, but be robust:
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from regression.anchor import run_and_summarize  # noqa: E402
-from regression.short_summary import METRIC_KEYS  # noqa: E402
-from regression.parity import parity_gate  # noqa: E402
-from regression.compare import compute_drift  # noqa: E402
+from migrate3to4.anchor import run_and_summarize  # noqa: E402
+from migrate3to4.short_summary import METRIC_KEYS  # noqa: E402
+from migrate3to4.parity import parity_gate  # noqa: E402
+from migrate3to4.compare import compute_drift  # noqa: E402
 
 
 # --- Anchor smoke test --------------------------------------------------------
@@ -36,7 +36,7 @@ def test_anchor_runs():
     return short
 
 
-# --- Unit tests for tests/regression/parity.py:parity_gate --------------------
+# --- Unit tests for tests/migrate3to4/parity.py:parity_gate --------------------
 
 def _rows(**series):
     """Build per-seed row dicts from {metric: [values]} columns of equal length."""
@@ -80,7 +80,7 @@ def test_parity_gate_skips_bookkeeping_keys():
     assert parity_gate(v4, v3, skip_keys=skip) == []
 
 
-# --- Unit tests for tests/regression/compare.py:compute_drift -----------------
+# --- Unit tests for tests/migrate3to4/compare.py:compute_drift -----------------
 
 def test_compute_drift_within_threshold():
     baseline = {'a': 100.0, 'b': 50.0}

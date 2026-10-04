@@ -6,7 +6,7 @@ Covasim v3.1.9. Every probe should either pass, or be listed in XFAIL with the r
 Starsim change, a migration rule (docs/migration/v3_v4.md), or a feature not yet ported. A probe
 that starts passing shows up as XPASS, so it can be removed from XFAIL.
 
-regression/v3_saved.sim is a small sim saved by Covasim v3.1.9, used to check that v3 objects can be loaded.
+v3_saved.sim is a small sim saved by Covasim v3.1.9, used to check that v3 objects can be loaded.
 """
 import os
 import atexit
@@ -608,7 +608,7 @@ def shrink_in_place_false():
     s = rs(); s2 = s.shrink(in_place=False)
 @probe
 def load_v3_pickle():
-    fn = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'regression', 'v3_saved.sim')
+    fn = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'v3_saved.sim')
     s = cv.load(fn); s.results['cum_infections'][-1]
 
 # ---------------- MultiSim / Scenarios ----------------

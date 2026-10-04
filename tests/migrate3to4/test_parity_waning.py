@@ -11,7 +11,7 @@ protection: every pinned metric -- aggregate burden AND per-variant wild/alpha/d
 converges to within |z|<3.5 of v3. So this gate covers the WHOLE set. Skips cleanly when the
 baseline is absent.
 
-    cd tests && pytest test_parity_waning.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_waning.py -m slow -v
 """
 import json
 import math
@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor_waning import make_sim  # noqa: E402
-from regression.short_summary import build_summary_variants, METRIC_KEYS_VARIANTS  # noqa: E402
-from regression.parity import parity_gate, _mean_se  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor_waning import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary_variants, METRIC_KEYS_VARIANTS  # noqa: E402
+from migrate3to4.parity import parity_gate, _mean_se  # noqa: E402
 
 N_V4_SEEDS = 10
 M_V3_SEEDS = 30
@@ -32,7 +32,7 @@ Z_THRESHOLD = 5.0  # as for the other gates (Starsim CRN vs v3 numba RNG residua
 
 def _baseline_path(pop_type):
     # Reuses the variants v3.1.8 baseline (both are the use_waning=True regime).
-    return Path(__file__).parent / 'regression' / f'v3_variants_{pop_type}_seeds_n{M_V3_SEEDS}.json'
+    return Path(__file__).parent / f'v3_variants_{pop_type}_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(pop_type, n):
@@ -51,7 +51,7 @@ def test_waning_parity(pop_type):
     if not baseline.exists():
         pytest.skip(
             f'Missing v3.1.8 baseline at {baseline}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --anchor variants_{pop_type} --n {M_V3_SEEDS}` '
+            f'`python tests/migrate3to4/multi_seed_v3.py --anchor variants_{pop_type} --n {M_V3_SEEDS}` '
             f'from a frozen v3.1.8 covasim env (the use_waning=True regime, shared with the variants gate).'
         )
     v3_rows = json.loads(baseline.read_text())

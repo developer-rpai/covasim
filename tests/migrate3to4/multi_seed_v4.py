@@ -1,10 +1,10 @@
 """Multi-seed sweep of the vanilla anchor in the CURRENT (v4) env, for ad-hoc diffing.
 
 Identical sweep to multi_seed_v3.py but defaults to writing v4_seeds_n{N}.json.
-The pytest parity gate (tests/test_parity_anchor.py) generates v4 seeds in-process
+The pytest parity gate (tests/migrate3to4/test_parity_anchor.py) generates v4 seeds in-process
 and does not require this file; it exists for manual local comparison.
 
-    python tests/regression/multi_seed_v4.py --n 10
+    python tests/migrate3to4/multi_seed_v4.py --n 10
 """
 import sys
 from pathlib import Path

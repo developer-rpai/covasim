@@ -142,9 +142,9 @@ dmypy.json
 # Node.js and NPM
 node_modules
 
-# Covasim v4.0 regression outputs (the v3 baselines, tests/regression/v3_*_seeds_n*.json, are committed; regenerate them from a v3.1.9 env via tests/regression/multi_seed_v3.py)
-tests/regression/v4_seeds*.json
-tests/regression/v4_*_seeds*.json
-tests/regression/v3_contacts*.json
-tests/regression/anchor_snapshot.json
-tests/regression/anchor_*_snapshot.json
+# Covasim v4.0 regression outputs (the v3 baselines, tests/migrate3to4/v3_*_seeds_n*.json, are committed; regenerate them from a v3.1.9 env via tests/migrate3to4/multi_seed_v3.py)
+tests/migrate3to4/v4_seeds*.json
+tests/migrate3to4/v4_*_seeds*.json
+tests/migrate3to4/v3_contacts*.json
+tests/migrate3to4/anchor_snapshot.json
+tests/migrate3to4/anchor_*_snapshot.json

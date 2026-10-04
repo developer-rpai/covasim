@@ -9,7 +9,7 @@ The static cross-immunity of the variants anchor diverges from v3 on the per-var
 dynamics (delta |z|~25-46); turning NAbs on re-converges every pinned metric to within |z|<3.5 of
 the same v3 baseline (the NAb engine reproduces v3's NAb-weighted protection).
 
-Run as a script:  python tests/regression/anchor_waning.py
+Run as a script:  python tests/migrate3to4/anchor_waning.py
 """
 import sys
 from pathlib import Path

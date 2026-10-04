@@ -12,7 +12,7 @@ prognoses (``symp_prob=0`` -> no symptomatic/severe/critical/death), and
 ``asymp_factor=1.0`` (asymptomatic agents transmit fully, i.e. ``rel_trans=1``).
 
 Run as a script to print the summary:
-    python tests/regression/anchor_transmission.py
+    python tests/migrate3to4/anchor_transmission.py
 """
 import sys
 from pathlib import Path

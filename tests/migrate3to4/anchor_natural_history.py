@@ -9,7 +9,7 @@ Unlike anchor_transmission, the v3 branch keeps the DEFAULT age-based prognoses 
 symptomatic disease course is the whole point of this anchor) -- it only forces use_waning=False
 + n_variants=1 to isolate single-variant non-waning dynamics.
 
-Run as a script:  python tests/regression/anchor_natural_history.py
+Run as a script:  python tests/migrate3to4/anchor_natural_history.py
 """
 import sys
 from pathlib import Path

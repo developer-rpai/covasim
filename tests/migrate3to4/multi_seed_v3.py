@@ -12,7 +12,7 @@ and likewise natural_history_*, variants_*, testing_* and vaccination_* (each wi
 _hybrid), writing v3_<anchor>_seeds_n{N}.json. The waning parity gate reuses the variants baseline.
 
 Run from a v3.1.8 env at the repo root, e.g.:
-    "<v3.1.8 env>/python" tests/regression/multi_seed_v3.py --anchor transmission_random --n 30
+    "<v3.1.8 env>/python" tests/migrate3to4/multi_seed_v3.py --anchor transmission_random --n 30
 
 DO NOT commit the output. The v4 parity gates (test_parity_*.py) load it.
 """

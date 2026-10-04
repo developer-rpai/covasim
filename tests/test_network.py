@@ -15,7 +15,7 @@ import covasim as cv
 import covasim.defaults as cvd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from regression.contact_stats import degree_by_layer, age_mixing_matrix, cosine_similarity  # noqa: E402
+from migrate3to4.contact_stats import degree_by_layer, age_mixing_matrix, cosine_similarity  # noqa: E402
 
 POP = 5000  # small enough to be fast; large enough for stable degree stats
 
@@ -112,11 +112,11 @@ def test_cosine_similarity_helper():
 
 # --- v3.1.8 equivalence (skips when the gitignored baseline is absent) -------
 
-_BASELINE = Path(__file__).parent / 'regression' / 'v3_contacts.json'
+_BASELINE = Path(__file__).parent / 'migrate3to4' / 'v3_contacts.json'
 
 
 @pytest.mark.skipif(not _BASELINE.exists(),
-                    reason='Missing v3.1.8 contact baseline (regression/v3_contacts.json); '
+                    reason='Missing v3.1.8 contact baseline (migrate3to4/v3_contacts.json); '
                            'generate from a frozen v3.1.8 env.')
 def test_contact_structure_equivalence():
     import json

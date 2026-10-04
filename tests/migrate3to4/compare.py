@@ -3,17 +3,17 @@ one-seed v3.1.8 snapshot.
 
 This is the lightweight DEVELOPMENT gate: a per-metric +/-10% relative-drift
 table, always exit 0, informational only. The hard scientific gate is the
-multi-seed z-score parity gate in tests/test_parity_anchor.py.
+multi-seed z-score parity gate in tests/migrate3to4/test_parity_anchor.py.
 
 No-baseline mode: if the snapshot file is missing, print a notice and exit 0
 WITHOUT running the anchor (CLI-integrity check; this is the mode CI runs). The
 anchor-runs check is the pytest smoke test's job.
 
 Usage:
-    python tests/regression/compare.py
-    python tests/regression/compare.py --baseline path/to/snapshot.json
-    python tests/regression/compare.py --threshold 0.05
-    python tests/regression/compare.py --save-snapshot   # from a v3.1.8 env
+    python tests/migrate3to4/compare.py
+    python tests/migrate3to4/compare.py --baseline path/to/snapshot.json
+    python tests/migrate3to4/compare.py --threshold 0.05
+    python tests/migrate3to4/compare.py --save-snapshot   # from a v3.1.8 env
 """
 import argparse
 import importlib
@@ -117,7 +117,7 @@ def main(argv=None):
     if not args.baseline.exists():
         print(f'No baseline at {args.baseline}; skipping diff.')
         print('To create one (from a v3.1.8 env): '
-              'python tests/regression/compare.py --save-snapshot')
+              'python tests/migrate3to4/compare.py --save-snapshot')
         return 0
 
     run = _resolve_run(args.anchor)

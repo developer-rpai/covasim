@@ -5,7 +5,7 @@ random + hybrid and gates the pinned metrics on |z| < 5 vs the gitignored v3.1.8
 (cum_infections/cum_deaths/peak_n_infectious) AND the testing/quarantine outcomes
 (cum_tests/cum_diagnoses/peak_n_quarantined/peak_n_isolated). Skips when the baseline is absent.
 
-    cd tests && pytest test_parity_testing.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_testing.py -m slow -v
 
 The |z| < 5 band (as for the natural-history/variants/waning gates) absorbs the systematic
 Starsim-CRN-vs-v3-numba-RNG offset; the testing/tracing selection RNG also differs (v4 ss.bernoulli vs v3 global RNG), so the gate targets
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor_testing import make_sim  # noqa: E402
-from regression.short_summary import build_summary_testing, METRIC_KEYS_TESTING  # noqa: E402
-from regression.parity import parity_gate, _mean_se  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor_testing import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary_testing, METRIC_KEYS_TESTING  # noqa: E402
+from migrate3to4.parity import parity_gate, _mean_se  # noqa: E402
 
 N_V4_SEEDS = 10
 M_V3_SEEDS = 30
@@ -39,7 +39,7 @@ INFORMATIONAL_KEYS = ('cum_tests',)
 
 
 def _baseline_path(pop_type):
-    return Path(__file__).parent / 'regression' / f'v3_testing_{pop_type}_seeds_n{M_V3_SEEDS}.json'
+    return Path(__file__).parent / f'v3_testing_{pop_type}_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(pop_type, n):
@@ -58,7 +58,7 @@ def test_testing_parity(pop_type):
     if not baseline.exists():
         pytest.skip(
             f'Missing v3.1.8 testing baseline at {baseline}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --anchor testing_{pop_type} --n {M_V3_SEEDS}` '
+            f'`python tests/migrate3to4/multi_seed_v3.py --anchor testing_{pop_type} --n {M_V3_SEEDS}` '
             f'from a frozen v3.1.8 covasim env.'
         )
     v3_rows = json.loads(baseline.read_text())

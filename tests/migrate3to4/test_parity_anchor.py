@@ -5,11 +5,11 @@ Runs N_V4_SEEDS v4 seeds of the vanilla anchor (hybrid + waning), then gates eac
     z = (v4_mean - v3_mean) / sqrt(v3_SE^2 + v4_SE^2)
 
 failing any metric with |z| >= Z_THRESHOLD. The v3.1.8 baseline is the gitignored
-multi-seed sweep at tests/regression/v3_seeds_n{M}.json, regenerated via
-`python tests/regression/multi_seed_v3.py --n 30` from a FROZEN v3.1.8 env.
+multi-seed sweep at tests/migrate3to4/v3_seeds_n{M}.json, regenerated via
+`python tests/migrate3to4/multi_seed_v3.py --n 30` from a FROZEN v3.1.8 env.
 
 Marked slow so the fast PR job skips it; run it locally or in the nightly job:
-    cd tests && pytest test_parity_anchor.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_anchor.py -m slow -v
 """
 import json
 import sys
@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor import make_sim  # noqa: E402
-from regression.short_summary import build_summary, SKIP_KEYS  # noqa: E402
-from regression.parity import parity_gate  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary, SKIP_KEYS  # noqa: E402
+from migrate3to4.parity import parity_gate  # noqa: E402
 
 N_V4_SEEDS = 10                 # 10 v4 seeds vs 30 v3 seeds (hpvsim's committed ratio)
 M_V3_SEEDS = 30
 Z_THRESHOLD = 3.0
-BASELINE_PATH = Path(__file__).parent / 'regression' / f'v3_seeds_n{M_V3_SEEDS}.json'
+BASELINE_PATH = Path(__file__).parent / f'v3_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(n, start_seed=0):
@@ -43,7 +43,7 @@ def test_vanilla_anchor_parity():
     if not BASELINE_PATH.exists():
         pytest.skip(
             f'Missing v3.1.8 vanilla-anchor baseline at {BASELINE_PATH}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --n {M_V3_SEEDS}` from a '
+            f'`python tests/migrate3to4/multi_seed_v3.py --n {M_V3_SEEDS}` from a '
             f'frozen v3.1.8 covasim env.'
         )
     v3_rows = json.loads(BASELINE_PATH.read_text())

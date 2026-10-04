@@ -11,7 +11,7 @@ trajectory *shape* + displacement ordering, accepting the documented static-vs-N
 divergence (same-variant reinfection = 0 under the static matrix). The parity gate uses
 |z| < 5 with a written rationale (as for the natural-history gate).
 
-Run as a script:  python tests/regression/anchor_variants.py
+Run as a script:  python tests/migrate3to4/anchor_variants.py
 """
 import sys
 from pathlib import Path

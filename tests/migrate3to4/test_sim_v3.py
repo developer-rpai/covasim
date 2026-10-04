@@ -90,7 +90,7 @@ def test_sim_data(do_plot=False):
         )
 
     # Create and run the simulation
-    sim = cv.Sim(pars=pars, datafile=os.path.join(sc.thisdir(__file__), 'example_data.csv'))
+    sim = cv.Sim(pars=pars, datafile=os.path.join(sc.thisdir(__file__), '..', 'example_data.csv'))
     sim.run()
 
     # Optionally plot

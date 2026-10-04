@@ -4,10 +4,10 @@ Runs N v4 seeds of the natural-history anchor (random and hybrid) and gates each
 |z| < 3 vs the gitignored v3.1.8 baseline -- the new burden cumulatives
 (cum_symptomatic/severe/critical/deaths) AND the transmission metrics
 (cum_infections/peak_prevalence/peak_n_infectious). Skips cleanly when the baseline is
-absent (generate it from a frozen v3.1.8 env -- see tests/regression/README.md).
+absent (generate it from a frozen v3.1.8 env -- see tests/migrate3to4/README.md).
 Marked slow so the fast PR job skips it; run locally or nightly:
 
-    cd tests && pytest test_parity_natural_history.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_natural_history.py -m slow -v
 """
 import json
 import sys
@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor_natural_history import make_sim  # noqa: E402
-from regression.short_summary import build_summary_natural_history  # noqa: E402
-from regression.parity import parity_gate  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor_natural_history import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary_natural_history  # noqa: E402
+from migrate3to4.parity import parity_gate  # noqa: E402
 
 N_V4_SEEDS = 10
 M_V3_SEEDS = 30
@@ -38,7 +38,7 @@ Z_THRESHOLD = 5.0
 
 
 def _baseline_path(pop_type):
-    return Path(__file__).parent / 'regression' / f'v3_natural_history_{pop_type}_seeds_n{M_V3_SEEDS}.json'
+    return Path(__file__).parent / f'v3_natural_history_{pop_type}_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(pop_type, n):
@@ -57,7 +57,7 @@ def test_natural_history_parity(pop_type):
     if not baseline.exists():
         pytest.skip(
             f'Missing v3.1.8 natural-history baseline at {baseline}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --anchor natural_history_{pop_type} --n {M_V3_SEEDS}` '
+            f'`python tests/migrate3to4/multi_seed_v3.py --anchor natural_history_{pop_type} --n {M_V3_SEEDS}` '
             f'from a frozen v3.1.8 covasim env.'
         )
     v3_rows = json.loads(baseline.read_text())

@@ -5,7 +5,7 @@ random + hybrid and gates the pinned metrics on |z| < 5 vs the gitignored v3.1.8
 burden/shape (cum_infections/cum_severe/cum_deaths/peak_n_infectious) AND the vaccination outcomes
 (cum_doses/cum_vaccinated). Skips when the baseline is absent.
 
-    cd tests && pytest test_parity_vaccination.py -m slow -v
+    cd tests && pytest migrate3to4/test_parity_vaccination.py -m slow -v
 
 |z| < 5 as for the other parity gates (the documented Starsim-CRN-vs-v3-RNG residual). Vaccine
 immunity shares the waning-immunity NAb pipeline (which converges to v3 at |z|<3.5), so the
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
-from regression.anchor_vaccination import make_sim  # noqa: E402
-from regression.short_summary import build_summary_vaccination, METRIC_KEYS_VACCINATION  # noqa: E402
-from regression.parity import parity_gate, _mean_se  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from migrate3to4.anchor_vaccination import make_sim  # noqa: E402
+from migrate3to4.short_summary import build_summary_vaccination, METRIC_KEYS_VACCINATION  # noqa: E402
+from migrate3to4.parity import parity_gate, _mean_se  # noqa: E402
 
 N_V4_SEEDS = 10
 M_V3_SEEDS = 30
@@ -29,7 +29,7 @@ Z_THRESHOLD = 5.0
 
 
 def _baseline_path(pop_type):
-    return Path(__file__).parent / 'regression' / f'v3_vaccination_{pop_type}_seeds_n{M_V3_SEEDS}.json'
+    return Path(__file__).parent / f'v3_vaccination_{pop_type}_seeds_n{M_V3_SEEDS}.json'
 
 
 def _run_v4_seeds(pop_type, n):
@@ -48,7 +48,7 @@ def test_vaccination_parity(pop_type):
     if not baseline.exists():
         pytest.skip(
             f'Missing v3.1.8 vaccination baseline at {baseline}. Regenerate via '
-            f'`python tests/regression/multi_seed_v3.py --anchor vaccination_{pop_type} --n {M_V3_SEEDS}` '
+            f'`python tests/migrate3to4/multi_seed_v3.py --anchor vaccination_{pop_type} --n {M_V3_SEEDS}` '
             f'from a frozen v3.1.8 covasim env.'
         )
     v3_rows = json.loads(baseline.read_text())
