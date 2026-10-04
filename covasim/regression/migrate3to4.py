@@ -4,7 +4,7 @@ Migrate scripts written for Covasim v3 to Covasim v4.
 Most v3 code runs unchanged in v4. This script applies the few changes that are
 mechanical (e.g. ``sim.t`` → ``sim.ti``), and lists the lines that may need a
 change that requires judgment (e.g. code that assumes agents who have died stay
-in the per-agent arrays). The rules are described in ``docs/migration/v3_v4.md``.
+in the per-agent arrays). The rules are described in ``docs/migrate3to4.md``.
 
 By default, the changes are shown but not made; use ``--apply`` to change the files.
 

@@ -7,7 +7,7 @@ description: Use when migrating code written for Covasim v3 (3.1.x or earlier) t
 
 Covasim v4 is built on Starsim, but keeps the v3 API: most v3 scripts run unchanged. The goal of a migration is to change as few lines as possible, and to check that the results still match. Don't rewrite v3 code into Starsim style unless asked; `cv.Sim(pars)`, `sim['beta']`, `apply(self, sim)` and so on are all still supported (see `covasim/compat.py`).
 
-The rules are in `v3_v4.md` in this folder (`docs/migration/v3_v4.md` in the Covasim repository). Read it before changing anything by hand.
+The rules are in `docs/migrate3to4.md` in the Covasim repository (https://docs.covasim.org/migrate3to4.html). Read it before changing anything by hand.
 
 ## Steps
 
@@ -15,7 +15,7 @@ The rules are in `v3_v4.md` in this folder (`docs/migration/v3_v4.md` in the Cov
 2. **Run the migration script without changing anything:** `covasim-migrate3to4 <files or folders>`. It prints a diff of the mechanical changes, then `CHECK` lines for anything that may need a change by hand.
 3. **Apply the mechanical changes:** add `--apply`. These are safe: `sim.t` → `sim.ti`, `sim.pars['key']` → `sim['key']`, `sim.results['transtree']` → `sim.transtree`, and `sc.findinds(people.x)` → `cv.true(people.x)`. The files should be under version control, since they are changed in place.
 4. **Go through each `CHECK` line.** Many need no change; the script can't tell. Decide using the rules below, and change only what is needed.
-5. **Run the code on v4** with `COVASIM_WARNINGS=error`, fix what fails using `v3_v4.md`, and compare with the v3 results from step 1. If the code can't be run (e.g. missing data), say so, and say which changes are untested.
+5. **Run the code on v4** with `COVASIM_WARNINGS=error`, fix what fails using `docs/migrate3to4.md`, and compare with the v3 results from step 1. If the code can't be run (e.g. missing data), say so, and say which changes are untested.
 6. **Report** what was changed mechanically, what was changed by hand and why, what was left alone, and how the results compare.
 
 ## Judgment calls
@@ -58,7 +58,7 @@ This is the change most likely to give wrong results silently. In v4, agents who
 ### Other
 
 - `sim.pars` passed around as an object (flagged by the script): it only has the Starsim sim parameters. Pass the sim and read `sim['key']`, or use `sim.diseases.covid.pars`.
-- `cv.Sim(version=...)` for versions before 2.1.0: see the rule in `v3_v4.md` for reproducing the old duration distributions.
+- `cv.Sim(version=...)` for versions before 2.1.0: see the rule in `docs/migrate3to4.md` for reproducing the old duration distributions.
 - `reset_seed` and re-seeding during a run have no effect, since each distribution has its own random number stream. Code that did this to compare scenarios with the same random numbers no longer needs to: v4 does that by default.
 
 ## What not to do

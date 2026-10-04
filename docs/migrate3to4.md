@@ -1,6 +1,31 @@
-# Covasim v3 → v4 migration rules
+# Migrating from Covasim v3 to v4
 
-Each rule is a change that v3 code needs in order to run on v4, found by running the v3 test suite, tutorials and examples against v4. Rules marked *mechanical* are applied by the migration script (`covasim-migrate3to4 my_script.py`, which shows the changes; add `--apply` to make them); the script also lists lines that may need one of the other rules, which need judgment. `SKILL.md` in this folder has instructions for an AI assistant doing a migration. Most v3 code needs no changes: see `covasim/compat.py` for what is supported for backwards compatibility.
+Covasim v4 is built on the [Starsim](https://starsim.org) framework: `cv.Sim` is a subclass of `ss.Sim`, the population is an `ss.People`, contact layers are `ss.Network`s, and the COVID disease logic is in a single `cv.COVID` module (an `ss.Infection`). The v3 API is preserved, so most v3 code runs on v4 without changes. This guide lists what does need to change, and how to make those changes.
+
+## What stays the same
+
+- **Creating and running a sim**: `cv.Sim(pars)`, `cv.Sim(pop_size=20e3, ...)`, `sim.initialize()`, `sim.run()`, `sim.plot()`, `sim.save()` and `cv.load()`.
+- **Parameters**: the v3 parameter names (`pop_size`, `pop_infected`, `pop_type`, `n_days`, `start_day`, `beta`, `pop_scale`, `rescale`, `use_waning`, `location` etc.), read and set with `sim['key']`.
+- **Results**: `sim.results['cum_infections']`, `sim.summary['cum_infections']`, and per-agent states such as `sim.people.exposed`.
+- **Interventions**: `cv.test_prob`, `cv.test_num`, `cv.contact_tracing`, `cv.vaccinate_prob`, `cv.vaccinate_num`, `cv.vaccinate`, `cv.simple_vaccine`, `cv.change_beta`, `cv.clip_edges`, `cv.dynamic_pars` and `cv.sequence`, as well as custom interventions with an `apply(self, sim)` method.
+- **Analyzers**: `cv.snapshot`, `cv.age_histogram`, `cv.daily_age_stats`, `cv.nab_histogram` and `cv.TransTree`, as well as custom analyzers.
+- **Variants and immunity**: `cv.variant`, waning immunity and cross-immunity (`use_waning`, which is on by default as in v3).
+- **Multiple runs and fitting**: `cv.MultiSim`, `cv.Scenarios`, `cv.parallel`, `cv.Fit` and `cv.Calibration`.
+
+What is supported for backwards compatibility is in `covasim/compat.py`.
+
+## How to migrate
+
+The rules below are the changes that v3 code needs in order to run on v4, found by running the v3 test suite, tutorials and examples against v4. Rules marked *mechanical* are applied by the migration script; rules marked *judgment* can change results without raising an error, so need checking by hand.
+
+```bash
+covasim-migrate3to4 my_script.py           # Show the changes for one file
+covasim-migrate3to4 my_folder --apply      # Change every .py file and notebook in a folder
+```
+
+The script also lists the lines that may need one of the other rules. The same functions are available in Python as `cv.migrate3to4`, e.g. `cv.migrate3to4.migrate('my_folder')`. For an AI assistant doing a migration, `docs/migrate3to4/SKILL.md` has instructions.
+
+Results are not identical to v3 for the same `rand_seed`, since v4 uses Starsim's random number streams (one for each distribution) rather than a single global stream. To check that a migrated script gives the same answers, compare the means over several seeds rather than single runs.
 
 ## Removed
 
@@ -36,3 +61,13 @@ Each rule is a change that v3 code needs in order to run on v4, found by running
 - Results by variant: `new_symptomatic_by_variant` and `new_severe_by_variant` (and their cumulative versions) are counted on the day people become symptomatic or severe, as for the results that aren't by variant; v3 counted them on the day of infection. `prevalence_by_variant` is the number infected with each variant divided by the number alive, so it sums to `prevalence`; v3 used the number of new infections. No changes to code are needed, but the values differ from v3.
 - `cv.historical_wave()` doesn't include the seed infections in the wave. v3 did, then infected them again on day 0, which counted them twice in `new_infections` and `cum_infections` on day 0 (so v3's values are higher by `pop_infected`), and listed them twice in the transmission log.
 - Results by variant have time as the first axis, i.e. shape `(npts, n_variants)` rather than `(n_variants, npts)`: e.g. `sim.results['variant']['new_infections_by_variant'][1,:]` → `[:,1]` (or `.values.T`), or use the variant name, e.g. `...['new_infections_by_variant'].delta`.
+
+## Where things are in v4
+
+None of this is needed to run v3 code, but it helps when reading v4 code or writing new code:
+
+- The COVID parameters are in `sim.diseases.covid.pars`, and the sim parameters (with the Starsim names, e.g. `n_agents`) are in `sim.pars`; `sim['key']` reads and sets both.
+- The COVID results are in `sim.diseases.covid.results`, and are also available as `sim.results[key]`. Results by variant are in `sim.results['variant']`. The keys of `sim.summary` have the module name as a prefix (e.g. `covid_cum_infections`), but can also be used without it.
+- `sim.init()` is the Starsim name for `sim.initialize()`; both work.
+
+See the [Starsim documentation](https://docs.starsim.org) for more on the framework.

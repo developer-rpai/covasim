@@ -3,7 +3,7 @@ Typical v3 user code, run against v4: the v3 backwards-compatibility tests.
 
 Each probe is a snippet of v3 code (from the v3 tutorials, examples, and tests) that ran on
 Covasim v3.1.9. Every probe should either pass, or be listed in XFAIL with the reason: a pending
-Starsim change, a migration rule (docs/migration/v3_v4.md), or a feature not yet ported. A probe
+Starsim change, a migration rule (docs/migrate3to4.md), or a feature not yet ported. A probe
 that starts passing shows up as XPASS, so it can be removed from XFAIL.
 
 v3_saved.sim is a small sim saved by Covasim v3.1.9, used to check that v3 objects can be loaded.

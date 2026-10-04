@@ -51,7 +51,7 @@ website:
         text: Tutorials
       - href: whatsnew.md
         text: What's new
-      - href: migration.md
+      - href: migrate3to4.md
         text: v3 → v4 migration
       - href: faq.md
         text: FAQ
@@ -96,6 +96,8 @@ website:
             - tutorials/tut_advanced.ipynb
         - href: whatsnew.md
           text: "**What's new**"
+        - href: migrate3to4.md
+          text: "**v3 → v4 migration**"
         - href: faq.md
           text: "**FAQ**"
         - href: api/index.qmd
