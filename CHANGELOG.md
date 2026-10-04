@@ -4,9 +4,68 @@ All notable changes to the codebase are documented in this file. Changes that ma
 
 ## Coming soon
 
-Covasim is currently being ported to [Starsim](https://starsim.org), but otherwise there are no further major releases planned. If there is a specific bugfix or feature you would like to see, please [create an issue](https://github.com/starsimhub/covasim/issues/new/choose).
+There are no further major releases planned. If there is a specific bugfix or feature you would like to see, please [create an issue](https://github.com/starsimhub/covasim/issues/new/choose).
 
-## Latest versions (3.1.x)
+## Latest versions (4.0.x)
+
+### Version 4.0.0 (2026-10-03)
+
+This release changes Covasim from a standalone library to one built on the [Starsim](https://starsim.org) framework. The Covasim API is preserved, and almost all v3 scripts run unchanged or with minor adjustments. The changes that are needed are listed in the [v3 → v4 migration guide](https://docs.covasim.org/migrate3to4.html), and summarized below.
+
+**Note:** due to the size of the changes, not all Covasim projects will be able to immediately and frictionlessly transition from v3 to v4. There may also be some bugs in the port (although the port fixed several existing bugs in v3). While we hope AI tools will help a lot with migration, please [reach out to us](info@covasim.org) and we would be very happy to help you upgrade and/or fix any bugs you come across.
+
+#### Highlights
+
+- **Reimplemented with Starsim**: `cv.Sim` is a subclass of `ss.Sim`, the population is an `ss.People`, contact layers are `ss.Network`s, and the COVID natural history, variants and immunity are in a single `cv.COVID` module. `cv.MultiSim` and `cv.Calibration` are built on their Starsim equivalents. Covasim now requires Starsim 3.7.1 or later.
+- **Compatible with v3**: Parameters, results, interventions, analyzers, plotting, and the tools for multiple runs and fitting all keep their v3 names and signatures.
+- **Migration script**: `covasim-migrate3to4` applies the mechanical changes needed to run v3 code on v4, and lists the lines that may need changing by hand.
+- **Faster**: A detailed simulation (100,000 agents, hybrid, with testing, tracing, vaccination and variants) is about 20% faster than in v3.
+
+#### Preserved features
+
+- Sims can be created with either a parameters dict (`cv.Sim(pars)`, including the full dict from `cv.make_pars()`) or keywords, and `sim['key']` gets and sets the v3 parameters (e.g. `sim['n_days'] = 10`).
+- All built-in interventions (testing, tracing, vaccination, `cv.change_beta()`, `cv.clip_edges()`, `cv.dynamic_pars()`, `cv.sequence()`, and the historical immunity interventions) and analyzers (`cv.snapshot()`, `cv.age_histogram()`, `cv.daily_age_stats()`, `cv.daily_stats()`, `cv.nab_histogram()`, `cv.TransTree()`) keep their v3 arguments.
+- Custom interventions and analyzers can still define the v3 methods `initialize(sim)`, `apply(sim)` and `finalize(sim)`.
+- `cv.MultiSim`, `cv.Scenarios`, `cv.parallel()`, `cv.Fit` and `cv.Calibration` keep the v3 API and result structure.
+- Results keep their v3 names (e.g. `sim.results['cum_infections']`), as do the columns of `sim.to_df()` and the plotting functions and their arguments.
+- The layer API is unchanged: `people.contacts`, `cv.Layer` (now an `ss.Network`), `contacts.add_layer()`, `sim.reset_layer_pars()`, and `dynam_layer`.
+- `sim.initialize()` still works; it is the same as Starsim's `sim.init()`.
+
+#### Changes to sims, parameters and people
+
+- `sim.pars` now holds the Starsim sim parameters (e.g. `n_agents` rather than `pop_size`), and the COVID parameters are in `sim.diseases.covid.pars`. Use `sim['key']` rather than `sim.pars['key']`, which works for both. Setting a parameter that doesn't exist on an initialized sim now raises an error.
+- In custom interventions and analyzers, use `sim.ti` rather than `sim.t` for the current day; `sim.t` is now the Starsim timeline.
+- As in Starsim, per-agent arrays (e.g. `sim.people.age`) only include agents who are alive, so they get shorter as agents die. The exceptions are `sim.people.dead` and `sim.people.date_dead`. Indexing by UID works for any agent, and `.raw` gives the values for all agents. `cv.true()` and related functions return UIDs.
+- Custom interventions and analyzers can't set the attributes that Starsim reserves (`t`, `pars`, `sim`, `dists`, `results`), and module names must be unique.
+- Sims are saved with their people by default; use `sim.save(keep_people=False)` to remove them.
+- Each random process now has its own random number stream (common random numbers), so `sim.set_seed()` and `sim.run(reset_seed=True)` part-way through a run have no effect; results only depend on `rand_seed`.
+- *Regression information*: Results are not identical to v3 for the same `rand_seed`. To check that a script gives the same answers in v3 and v4, compare the means over several seeds rather than single runs.
+
+#### Changes to transmission
+
+- The high viral load phase (`viral_dist`) now lasts the intended time: the first 30% of the infectious period, up to 4 days. In v3, a rounding error made it a day longer for people infectious for exactly 10 days, and for most people infectious for 14 days or more.
+- *Regression information*: Transmission is 1–2% lower than in v3 for the same parameters, which can add up to about 10% fewer infections over several months of a growing epidemic. Models calibrated with v3 should be recalibrated, usually by increasing `beta` by 1–2%.
+
+#### Changes to results and analyzers
+
+- The keys of `sim.summary` have the module name as a prefix (e.g. `covid_cum_deaths`), but can also be used without it.
+- Results by variant now have time as the first axis, i.e. shape `(npts, n_variants)` rather than `(n_variants, npts)`. They are now included in `sim.to_df()`, `msim.reduce()` etc.
+- Results that are not time series have moved from `sim.results` to the sim: `sim.gen_time`, `sim.transtree` and `sim.agehist`. Likewise, `daily_age_stats.results` is now `daily_age_stats.age_results`.
+- The transmission log is always recorded, so `sim.make_transtree()` works after any run. It is stored as an `ss.InfectionLog` in `sim.diseases.covid.infection_log`; `sim.people.infection_log` returns it in the v3 format.
+- `cv.snapshot()` stores `cv.PeopleSnapshot` objects rather than copies of the people.
+- Plot titles use shorter result labels (e.g. "New infections" rather than "Number of new infections").
+- *Regression information*: Three v3 bugs in the results have been fixed. `new_symptomatic_by_variant` and `new_severe_by_variant` are counted on the day they happen (v3 counted them on the day of infection). `prevalence_by_variant` is the number infected with each variant divided by the number alive (v3 used the number of new infections). With `cv.historical_wave()`, the seed infections are not part of the wave (v3 included them and then infected them again, which counted them twice in `cum_infections` and in the transmission log).
+
+#### Not ported
+
+- SynthPops populations (`pop_type='synthpops'`), population files (`popfile`), and `cv.make_people()`, `cv.make_randpop()` and `cv.make_synthpop()` have been removed; let `cv.Sim` create the population instead.
+- The v3 base classes `cv.ParsObj`, `cv.BaseSim`, `cv.BasePeople` and `cv.Person` no longer exist; `cv.Result` is now `ss.Result`.
+- Sims saved with v3 can be loaded with `cv.load()` and their results and parameters read, but they can't be rerun or plotted.
+- Parameters from Covasim versions before 2.1.0 (`cv.Sim(version=...)`) are not supported.
+- *GitHub info*: PR [445](https://github.com/starsimhub/covasim/pull/445)
+
+
+## Versions 3.1.x (3.1.0-3.1.9)
 
 ### Version 3.1.9 (2026-09-29)
 
