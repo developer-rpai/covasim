@@ -1,13 +1,8 @@
 # Migrating from Covasim v3 to v4
 
-Covasim v4.0 is a substantial internal change: the model is now built on the
-[Starsim](https://starsim.org) framework. `cv.Sim` is a subclass of `ss.Sim`, the agent population
-is an `ss.People`, contact layers are `ss.Network`s, and the COVID disease logic lives in a single
-`cv.COVID(ss.Infection)` module. Despite the new foundation, **the public Covasim API is preserved**:
-the great majority of v3 scripts run unchanged, or with only the small adjustments documented below.
+Covasim v4.0 is a substantial internal change: the model is now built on the [Starsim](https://starsim.org) framework. `cv.Sim` is a subclass of `ss.Sim`, the agent population is an `ss.People`, contact layers are `ss.Network`s, and the COVID disease logic lives in a single `cv.COVID(ss.Infection)` module. Despite the new foundation, **the public Covasim API is preserved**: the great majority of v3 scripts run unchanged, or with only the small adjustments documented below.
 
-This guide covers what stays the same, what changed, how to convert a v3 script, and the features
-that are not yet ported.
+This guide covers what stays the same, what changed, how to convert a v3 script, and the features that are not yet ported.
 
 ---
 
@@ -15,8 +10,7 @@ that are not yet ported.
 
 These work in v4 exactly as in v3:
 
-- **Building a sim.** Both the dict form and the keyword form are supported, and an explicit keyword
-  overrides the same key in the dict:
+- **Building a sim.** Both the dict form and the keyword form are supported, and an explicit keyword overrides the same key in the dict:
 
   ```python
   import covasim as cv
@@ -31,15 +25,10 @@ These work in v4 exactly as in v3:
   sim.run()
   ```
 
-- **Interventions** — `cv.test_prob`, `cv.test_num`, `cv.contact_tracing`, `cv.vaccinate_prob`,
-  `cv.vaccinate_num`, `cv.vaccinate`, `cv.simple_vaccine`, `cv.change_beta`, `cv.clip_edges`,
-  `cv.dynamic_pars`, and `cv.sequence` all keep their v3 signatures.
-- **Analyzers** — `cv.snapshot`, `cv.age_histogram`, `cv.daily_age_stats`, `cv.nab_histogram`, and
-  `cv.TransTree`.
-- **Multi-run and analysis tools** — `cv.MultiSim`, `cv.Scenarios`, `cv.parallel`, `cv.Fit`,
-  `cv.Calibration`.
-- **Variants and waning immunity** — `cv.variant`, co-circulating strains, neutralizing-antibody
-  waning, and cross-immunity (gated by `use_waning`, exactly as in v3).
+- **Interventions** — `cv.test_prob`, `cv.test_num`, `cv.contact_tracing`, `cv.vaccinate_prob`, `cv.vaccinate_num`, `cv.vaccinate`, `cv.simple_vaccine`, `cv.change_beta`, `cv.clip_edges`, `cv.dynamic_pars`, and `cv.sequence` all keep their v3 signatures.
+- **Analyzers** — `cv.snapshot`, `cv.age_histogram`, `cv.daily_age_stats`, `cv.nab_histogram`, and `cv.TransTree`.
+- **Multi-run and analysis tools** — `cv.MultiSim`, `cv.Scenarios`, `cv.parallel`, `cv.Fit`, `cv.Calibration`.
+- **Variants and waning immunity** — `cv.variant`, co-circulating strains, neutralizing-antibody waning, and cross-immunity (gated by `use_waning`, exactly as in v3).
 - **Save / load** — `sim.save()`, `cv.Sim.load()`, `cv.save()`, `cv.load()`, and `sc.load()`.
 - **Plotting** — `sim.plot()` (a headline multi-panel view), `fit.plot()`, `transtree.plot()`.
 
@@ -54,36 +43,25 @@ sim.diseases.covid.results['cum_infections']   # canonical
 sim.results['cum_infections']                  # bridged alias (works too)
 ```
 
-For backwards compatibility, every top-level COVID result is also referenced at `sim.results[key]`,
-so v3-style `sim.results['cum_deaths']` continues to resolve. The by-variant results live under
-`sim.results['variant'][key]` (a 2D `time × variant` array).
+For backwards compatibility, every top-level COVID result is also referenced at `sim.results[key]`, so v3-style `sim.results['cum_deaths']` continues to resolve. The by-variant results live under `sim.results['variant'][key]` (a 2D `time × variant` array).
 
-`sim.summary` keys are **namespaced** by module (`covid_cum_deaths`, `h_n_edges`, …) rather than the
-bare v3 names. If you parsed `sim.summary` by key, update the keys accordingly.
+`sim.summary` keys are **namespaced** by module (`covid_cum_deaths`, `h_n_edges`, …) rather than the bare v3 names. If you parsed `sim.summary` by key, update the keys accordingly.
 
 ### 2.2 Random numbers and exact reproducibility
 
-Starsim uses **per-distribution common random numbers (CRN)** rather than Covasim v3's single global
-NumPy/Numba stream. As a result, **v4 results are not bit-for-bit identical to v3** for the same seed.
-This is expected. Equivalence is validated statistically: the migration ships multi-seed z-score
-*parity gates* that confirm v4 and v3.1.8 agree within sampling noise on the headline metrics.
+Starsim uses **per-distribution common random numbers (CRN)** rather than Covasim v3's single global NumPy/Numba stream. As a result, **v4 results are not bit-for-bit identical to v3** for the same seed. This is expected. Equivalence is validated statistically: the migration ships multi-seed z-score *parity gates* that confirm v4 and v3.1.8 agree within sampling noise on the headline metrics.
 
 ### 2.3 `use_waning` defaults to `True` (as in v3)
 
-As in v3, `use_waning` defaults to **`True`** — `cv.Sim()` runs with waning immunity (NAbs +
-cross-immunity) by default, and the NAb-based vaccination interventions
-(`cv.vaccinate_prob`/`vaccinate_num`) work out of the box. Pass `use_waning=False` for the simpler
-permanent-immunity model (and `cv.simple_vaccine` for non-NAb vaccination).
+As in v3, `use_waning` defaults to **`True`** — `cv.Sim()` runs with waning immunity (NAbs + cross-immunity) by default, and the NAb-based vaccination interventions (`cv.vaccinate_prob`/`vaccinate_num`) work out of the box. Pass `use_waning=False` for the simpler permanent-immunity model (and `cv.simple_vaccine` for non-NAb vaccination).
 
 ### 2.4 `sim.init()` (with `sim.initialize()` retained)
 
-Starsim's initializer is `sim.init()`. The v3 name `sim.initialize()` is retained as an alias, so
-existing calls keep working. (`sim.run()` still initializes automatically if needed.)
+Starsim's initializer is `sim.init()`. The v3 name `sim.initialize()` is retained as an alias, so existing calls keep working. (`sim.run()` still initializes automatically if needed.)
 
 ### 2.5 Inputs are deep-copied
 
-As in v3, `cv.Sim` deep-copies the interventions / analyzers / diseases you pass in. The *live*
-objects after a run are on the sim:
+As in v3, `cv.Sim` deep-copies the interventions / analyzers / diseases you pass in. The *live* objects after a run are on the sim:
 
 ```python
 snap = cv.snapshot(days=[30])
@@ -94,10 +72,7 @@ snap_live = sim.analyzers['snapshot']   # NOT the `snap` you constructed
 
 ### 2.6 Parameter access
 
-Parameters are stored on `sim.pars` (sim-level), `sim.diseases.covid.pars` (disease), and the network
-objects. Broad v3-style `sim['beta']` item access is **not** fully supported in v4.0 — read from the
-specific object instead (e.g. `sim.diseases.covid.pars.beta`). Use `sim.export_pars()` to snapshot the
-configuration to JSON.
+Parameters are stored on `sim.pars` (sim-level), `sim.diseases.covid.pars` (disease), and the network objects. Broad v3-style `sim['beta']` item access is **not** fully supported in v4.0 — read from the specific object instead (e.g. `sim.diseases.covid.pars.beta`). Use `sim.export_pars()` to snapshot the configuration to JSON.
 
 ## 3. Parameter remapping
 
@@ -138,33 +113,19 @@ print(sim.summary['covid_cum_infections'])      # namespaced key
 sim.plot()
 ```
 
-The only required changes are the **namespaced summary key** and (optionally) dropping the explicit
-`initialize()` call. Everything else is identical.
+The only required changes are the **namespaced summary key** and (optionally) dropping the explicit `initialize()` call. Everything else is identical.
 
 ## 5. Not yet ported
 
-- **`pop_type='synthpops'`** (the SynthPops population backend, including the LTCF layer). Use
-  `'hybrid'` or `'random'` for now.
+- **`pop_type='synthpops'`** (the SynthPops population backend, including the LTCF layer). Use `'hybrid'` or `'random'` for now.
 - **`bin/covasim`** — the command-line wrapper is retired in v4.0; use the Python API directly.
-- **Dynamic rescaling** (`rescale`, `make_naive`/`make_nonnaive`). v4 uses absolute agent counts;
-  static `pop_scale` / `total_pop` are supported.
-- **Full TransTree graph plotting** — `cv.TransTree` reconstructs the tree and computes offspring/R0,
-  and `transtree.plot()` shows the offspring + timing distributions, but the full NetworkX graph view
-  is not yet ported.
-- **Loading pre-v4 pickles** — v3 `.sim`/`.scens` files will generally not unpickle under the new
-  object model. Re-run from parameters, or keep v3 installed to read old files.
-- **`cv.Layer` / `people.contacts` / `dynam_layer`** — the v4 contact-network internals differ; the
-  low-level layer-manipulation API is not ported.
+- **Dynamic rescaling** (`rescale`, `make_naive`/`make_nonnaive`). v4 uses absolute agent counts; static `pop_scale` / `total_pop` are supported.
+- **Full TransTree graph plotting** — `cv.TransTree` reconstructs the tree and computes offspring/R0, and `transtree.plot()` shows the offspring + timing distributions, but the full NetworkX graph view is not yet ported.
+- **Loading pre-v4 pickles** — v3 `.sim`/`.scens` files will generally not unpickle under the new object model. Re-run from parameters, or keep v3 installed to read old files.
+- **`cv.Layer` / `people.contacts` / `dynam_layer`** — the v4 contact-network internals differ; the low-level layer-manipulation API is not ported.
 
-The following ARE supported in v4 (some restored after the initial port): `location=` (country age
-distributions), vaccination `subtarget=`/`booster=`, custom `nab_decay` forms, custom analyzers via a
-v3-style `apply(sim)` method, `n_imports` background importation, the `r_eff` result, pre-t=0 immunity
-(`historical_vaccinate_prob`, `prior_immunity`, `historical_wave`; require `use_waning=True`), and
-v3-style per-agent state reads via `sim.people.<state>` (e.g. `sim.people.exposed`, `sim.people.rel_sus`),
-which proxy through to `sim.diseases.covid`.
+The following ARE supported in v4 (some restored after the initial port): `location=` (country age distributions), vaccination `subtarget=`/`booster=`, custom `nab_decay` forms, custom analyzers via a v3-style `apply(sim)` method, `n_imports` background importation, the `r_eff` result, pre-t=0 immunity (`historical_vaccinate_prob`, `prior_immunity`, `historical_wave`; require `use_waning=True`), and v3-style per-agent state reads via `sim.people.<state>` (e.g. `sim.people.exposed`, `sim.people.rel_sus`), which proxy through to `sim.diseases.covid`.
 
 ## 6. Getting help
 
-See the [Starsim documentation](https://starsim.org) for the underlying framework, the Covasim
-tutorials under `docs/`, and the `migration_plan/` folder in the repository for the full
-milestone-by-milestone record of the port.
+See the [Starsim documentation](https://starsim.org) for the underlying framework, the Covasim tutorials under `docs/`, and the `migration_plan/` folder in the repository for the full milestone-by-milestone record of the port.
