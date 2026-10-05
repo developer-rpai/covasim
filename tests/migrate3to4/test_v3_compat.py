@@ -17,6 +17,7 @@ import pandas as pd
 import sciris as sc
 import pylab as pl
 import pytest
+import starsim as ss
 import covasim as cv
 
 WORK = tempfile.mkdtemp(prefix='covasim_v3_compat_') # Folder for files written by the probes
@@ -430,6 +431,27 @@ def iv_custom_subclass_sim_results():
         def apply(self, sim):
             if sim.ti > 5 and sim.results['new_infections'][sim.ti-1] > 10: self.hit = True
     rs(interventions=my_iv())
+@probe
+def iv_subclass_builtin_apply():
+    class my_tp(cv.test_prob):
+        def apply(self, sim):
+            self.n_calls = getattr(self, 'n_calls', 0) + 1
+            return super().apply(sim)
+    s = rs(interventions=my_tp(symp_prob=0.5))
+    assert s.get_intervention().n_calls == s.npts # The override of a built-in intervention's apply() is called on every day...
+    assert s.results['cum_tests'][-1] > 0 # ...and super().apply() runs the built-in logic
+@probe
+def sim_immunity_without_connector():
+    assert cv.Sim(P, use_waning=False).initialize()['immunity'] is None # As in v3, rather than an error
+@probe
+def sim_dur_location_getitem():
+    sim = cv.Sim(P)
+    sim['dur']['exp2inf']['par1'] = 10 # Changed in place, as in v3, and applied when the sim is initialized
+    sim['location'] = 'nigeria'
+    sim['contacts']['a'] = 5
+    sim.initialize()
+    assert sim.diseases.covid.pars.dur_exp2inf.pars.mean == ss.days(10) # The changed duration is used
+    assert sim['contacts']['a'] == 5 # The changed contacts are used
 @probe
 def iv_dynamic_trigger():
     def check(sim):
