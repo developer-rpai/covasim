@@ -12,7 +12,7 @@ There are no further major releases planned. If there is a specific bugfix or fe
 
 This release changes Covasim from a standalone library to one built on the [Starsim](https://starsim.org) framework. The Covasim API is preserved, and almost all v3 scripts run unchanged or with minor adjustments. The changes that are needed are listed in the [v3 → v4 migration guide](https://docs.covasim.org/migrate3to4.html), and summarized below.
 
-**Note:** due to the size of the changes, not all Covasim projects will be able to immediately and frictionlessly transition from v3 to v4. There may also be some bugs in the port (although the port fixed several existing bugs in v3). While we hope AI tools will help a lot with migration, please [reach out to us](info@covasim.org) and we would be very happy to help you upgrade and/or fix any bugs you come across.
+**Note:** due to the size of the changes, not all Covasim projects will be able to immediately and frictionlessly transition from v3 to v4. There may also be some bugs in the port (although the port fixed several existing bugs in v3). While we hope AI tools will help a lot with migration, please [reach out to us](info@covasim.org) or [open an issue](https://github.com/starsimhub/covasim/issues/new/choose) and we would be very happy to help you upgrade and/or fix any bugs you come across.
 
 #### Highlights
 
