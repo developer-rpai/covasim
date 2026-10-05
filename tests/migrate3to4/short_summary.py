@@ -69,7 +69,7 @@ def build_summary(sim):
     return out
 
 
-# --- Basic transmission summary ----------------------------------------------
+# Basic transmission summary --------------------------------------------------
 # The gated metrics are the basic-transmission outcomes (no symptomatic/severe/
 # critical/death burden -- those are identically zero in the transmission anchor
 # and are covered by the natural-history summary).
@@ -115,7 +115,7 @@ def build_summary_transmission(sim):
     }
 
 
-# --- Natural-history summary -------------------------------------------------
+# Natural-history summary -----------------------------------------------------
 # Transmission metrics PLUS the burden cumulatives.
 METRIC_KEYS_NATURAL_HISTORY = (
     'cum_infections', 'peak_prevalence', 'peak_n_infectious',
@@ -155,7 +155,7 @@ def build_summary_natural_history(sim):
     }
 
 
-# --- Multi-variant + cross-immunity summary ----------------------------------
+# Multi-variant + cross-immunity summary --------------------------------------
 # Aggregate burden/shape PLUS per-variant counts for wild/alpha/delta. Under reinfection the
 # aggregate cum_infections counts infection EVENTS (= sum over variants of cum_infections_by_variant),
 # matching v3's flow-based definition (NOT unique-ever-infected agents).
@@ -228,7 +228,7 @@ def build_summary_variants(sim):
     return out
 
 
-# --- Testing / tracing / quarantine summary ----------------------------------
+# Testing / tracing / quarantine summary --------------------------------------
 # Burden + epidemic shape PLUS the testing/quarantine outcomes.
 METRIC_KEYS_TESTING = (
     'cum_infections', 'cum_deaths', 'peak_n_infectious',
@@ -263,7 +263,7 @@ def build_summary_testing(sim):
     }
 
 
-# --- Vaccination summary -----------------------------------------------------
+# Vaccination summary ---------------------------------------------------------
 # Burden + epidemic shape PLUS the vaccination outcomes.
 METRIC_KEYS_VACCINATION = (
     'cum_infections', 'cum_severe', 'cum_deaths', 'peak_n_infectious',

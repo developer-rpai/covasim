@@ -50,7 +50,7 @@ def datafile():
     return fn
 
 
-# ---------------- Basic construction / pars ----------------
+# Basic construction / pars ---------------------------------
 @probe
 def sim_default_run():
     sim = cv.Sim(verbose=0, pop_size=2000); sim.run(); assert sim.results['cum_infections'][-1] > 0
@@ -144,7 +144,7 @@ def sim_n_beds():
 def sim_asymp_factor():
     rs(asymp_factor=0.5)
 
-# ---------------- Results ----------------
+# Results ---------------------------------
 @probe
 def results_values_attr():
     r = base().results['cum_infections']; assert isinstance(r.values, np.ndarray) and len(r.values) == 41
@@ -183,7 +183,7 @@ def results_npts_tvec():
 def results_datevec():
     s = base(); assert len(s.datevec) == 41
 
-# ---------------- Summary / display ----------------
+# Summary / display ---------------------------------
 @probe
 def summary_bare_keys():
     s = base().summary; assert s['cum_infections'] > 0 and 'cum_deaths' in s
@@ -209,7 +209,7 @@ def print_sim():
 def sim_n_attr():
     assert dead().n == 2000
 
-# ---------------- dates ----------------
+# Dates ---------------------------------
 @probe
 def cv_date_helpers():
     assert cv.date('2020-03-01') is not None; cv.date('2020-03-01', as_date=False); cv.day('2020-03-05', start_date='2020-03-01') == 4
@@ -229,7 +229,7 @@ def sim_day_list():
 def sim_date_as_date():
     base().date(10, as_date=True)
 
-# ---------------- people ----------------
+# People ---------------------------------
 @probe
 def people_age():
     p = dead().people; assert len(p.age) == 2000
@@ -325,7 +325,7 @@ def people_save_load():
 def popdict_custom():
     pd_ = cv.make_people(cv.Sim(P)); assert len(pd_) == 2000
 
-# ---------------- interventions ----------------
+# Interventions ---------------------------------
 @probe
 def iv_change_beta_date_str():
     rs(interventions=cv.change_beta(days='2020-03-15', changes=0.5))
@@ -476,7 +476,7 @@ def sim_interventions_list_index():
 def interventions_passed_as_pars_key():
     sim = cv.Sim(sc.mergedicts(P, dict(interventions=[cv.change_beta(10, 0.5)]))); sim.run()
 
-# ---------------- analyzers ----------------
+# Analyzers ---------------------------------
 @probe
 def an_snapshot():
     s = rs(analyzers=cv.snapshot('2020-03-10', 20)); snap = s.get_analyzer(); p = snap.get('2020-03-10'); assert hasattr(p, 'age')
@@ -534,7 +534,7 @@ def an_fit():
 def an_fit_class():
     fn = datafile(); s = cv.Sim(P, datafile=fn, interventions=cv.test_prob(0.1)); s.run(); f = cv.Fit(s); f.summarize()
 
-# ---------------- run control ----------------
+# Run control ---------------------------------
 @probe
 def run_until_resume():
     s = cv.Sim(P); s.run(until=20); s.run(); assert s.results['cum_infections'][-1] > 0
@@ -562,7 +562,7 @@ def sim_reuse_after_dcp():
 def sim_set_seed():
     s = cv.Sim(P); s.set_seed(4)
 
-# ---------------- plotting ----------------
+# Plotting ---------------------------------
 @probe
 def plot_default():
     base().plot(); pl.close('all')
@@ -591,7 +591,7 @@ def plot_variants():
 def plot_people():
     cv.plot_people(base().people) if hasattr(cv, 'plot_people') else base().people.plot(); pl.close('all')
 
-# ---------------- export / save ----------------
+# Export / save ---------------------------------
 @probe
 def to_df():
     df = base().to_df(); assert 'cum_infections' in df.columns and 'date' in df.columns
@@ -633,7 +633,7 @@ def load_v3_pickle():
     fn = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'v3_saved.sim')
     s = cv.load(fn); s.results['cum_infections'][-1]
 
-# ---------------- MultiSim / Scenarios ----------------
+# MultiSim / Scenarios ---------------------------------
 @probe
 def msim_basic():
     msim = cv.MultiSim(cv.Sim(P), n_runs=3); msim.run(); msim.reduce(); msim.plot(); pl.close('all')
@@ -704,7 +704,7 @@ def scenarios_summarize_save():
 def scenarios_default():
     scens = cv.Scenarios(basepars=P, metapars=dict(n_runs=1)); scens.run(); scens.plot(to_plot=['cum_infections']); pl.close('all')
 
-# ---------------- variants / immunity ----------------
+# Variants / immunity ---------------------------------
 @probe
 def variant_delta_days():
     s = rs(variants=cv.variant('delta', days=10, n_imports=10)); assert s.results['variant']['cum_infections_by_variant'].values.shape[1] == 2
@@ -736,7 +736,7 @@ def historical_wave():
 def cv_immunity_fns():
     s = cv.Sim(P); s.initialize(); cv.immunity.init_immunity(s) if hasattr(cv, 'immunity') and hasattr(cv.immunity, 'init_immunity') else s.init_immunity()
 
-# ---------------- misc helpers ----------------
+# Misc helpers ---------------------------------
 @probe
 def cv_options():
     cv.options.set(verbose=0); cv.options.set('dpi', 100); cv.options.help() if hasattr(cv.options, 'help') else None
@@ -791,7 +791,7 @@ def cv_calibration():
     calib = cv.Calibration(s, calib_pars=dict(beta=[0.015, 0.01, 0.02]), total_trials=2, n_workers=1, verbose=False, keep_db=False)
     calib.calibrate(die=True)
 
-# ---------------- people/sim fine-grained behaviour ----------------
+# People/sim fine-grained behaviour ---------------------------------
 @probe
 def sim_t_in_function_is_int():
     ts = []

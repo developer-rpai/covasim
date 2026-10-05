@@ -240,7 +240,7 @@ class COVID(ss.Infection):
         self._n_imports = ss.poisson(lam=0) # The number of imported infections on each step (if n_imports > 0)
         self._choose_imports = ss.choose_n() # Who those infections are
 
-        # --- Variants ---------------------------------------------------------------
+        # Variants -------------------------------------------------------------------
         # A single COVID module carries an internal variant dimension. cv.variant.initialize() and
         # cv.Sim(variants=...) add variants; the per-variant parameters come from
         # parameters.get_variant_pars. Wild is always index 0.
@@ -331,7 +331,7 @@ class COVID(ss.Infection):
         """Agents who transmit: infected and past the latent period (I, not merely E)."""
         return self.infected & (self.ti_infectious <= self.ti)
 
-    # --- prognoses ------------------------------------------------------------
+    # Prognoses ----------------------------------------------------------------
 
     def init_prognoses(self):
         """Fill the per-agent age-conditional branch probabilities + susceptibility.
@@ -620,7 +620,7 @@ class COVID(ss.Infection):
             self.results['n_imports'][self.ti] += len(uids)
         return uids
 
-    # --- testing / tracing / quarantine ----------------------------------
+    # Testing / tracing / quarantine --------------------------------------
 
     def test(self, uids, test_sensitivity=1.0, loss_prob=0.0, test_delay=0, n_tests=None):
         """Test agents and schedule positive diagnoses (the v3 ``People.test`` action).
@@ -899,7 +899,7 @@ class COVID(ss.Infection):
         self.isolated[uids]      = False
         return
 
-    # --- results --------------------------------------------------------------
+    # Results ------------------------------------------------------------------
 
     def init_results(self):
         """
@@ -1137,7 +1137,7 @@ class COVID(ss.Infection):
         res.r_eff[:] = values
         return
 
-    # --- seeding --------------------------------------------------------------
+    # Seeding ------------------------------------------------------------------
 
     def init_post(self):
         """Fill the age-conditional prognoses, then seed the initial infections (e.g. ``init_prev=ss.choose_n(20)``)."""
