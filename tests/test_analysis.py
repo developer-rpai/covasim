@@ -1,6 +1,6 @@
-'''
+"""
 Tests for the analyzers and other analysis tools.
-'''
+"""
 
 import numpy as np
 import sciris as sc
@@ -22,7 +22,7 @@ pars = dict(
 #%% Define tests
 
 def fname(label):
-    ''' Name a figure -- complicated because needs a doubly nested dictionary '''
+    """ Name a figure -- complicated because needs a doubly nested dictionary """
     return dict(fig_args=dict(num=label))
 
 
@@ -39,6 +39,8 @@ def test_snapshot():
 
     assert people1 == people2, 'Snapshot options should match but do not'
     assert people3 != people4, 'Snapshot options should not match but do'
+    assert len(people4) == pars['pop_size'], 'Snapshots should include everyone, including people who have died'
+    assert people4.count('exposed') == sim.results['n_exposed'][34], 'Snapshot should match the results on that day'
     return people5
 
 
@@ -76,6 +78,7 @@ def test_daily_age():
     sim = cv.Sim(pars, analyzers=cv.daily_age_stats())
     sim.run()
     daily_age = sim.get_analyzer()
+    assert daily_age.to_df().new_dead.sum() == sim.summary['cum_deaths'], 'Deaths by age should add up to the total'
     if do_plot:
         daily_age.plot(**fname('Daily age 1'))
         daily_age.plot(total=True, **fname('Daily age 2'))
@@ -88,6 +91,9 @@ def test_daily_stats():
     sim = cv.Sim(pars, n_days=40, analyzers=ds)
     sim.run()
     daily = sim.get_analyzer()
+    t = sim.day('2020-04-04')
+    sources = {e['source'] for e in cv.analysis.make_infection_log(sim) if (e['date'] == t) and (e['source'] is not None)}
+    assert daily.stats[0].source.new_sources == len(sources), 'Sources from the latest log entries should match the full log'
     if do_plot:
         daily.plot(**fname('Daily stats'))
     return daily
@@ -124,6 +130,21 @@ def test_fit():
     fit2 = sim2.compute_fit(custom=custom_inputs)
 
     assert fit1.mismatch != fit2.mismatch, "Differences between fit and data remains unchanged after changing sim seed"
+
+    # Test that a perfect fit has no mismatch
+    perfect = {'custom_data':{'data':np.array([1,2,3]), 'sim':np.array([1,2,3])}}
+    fit3 = sim.compute_fit(custom=perfect)
+    assert fit3.mismatches['custom_data'] == 0
+
+    # Test the v3 positional arguments, data indexed by integer day, and custom keys that clash with results
+    weights = {'cum_deaths':1, 'cum_diagnoses':1}
+    fit4 = cv.Fit(sim, weights)
+    data = sim.data.copy()
+    data.index = [sim.day(d) for d in data.index]
+    fit5 = cv.Fit(sim, weights, data=data)
+    assert fit4.mismatch == fit5.mismatch, 'Data indexed by integer day should give the same fit as data indexed by date'
+    with pytest.raises(ValueError):
+        sim.compute_fit(custom={'cum_deaths':{'data':[1,2,3], 'sim':[1,2,4]}}) # A custom key can't replace a result
 
     # Test custom analyzers
     actual = np.array([1,2,4])
@@ -186,6 +207,7 @@ def test_transtree():
 
     transtree = sim.make_transtree()
     print(len(transtree))
+    assert len(transtree) == sim.summary['cum_infections'], 'Every infection should be in the transmission tree'
     if do_plot:
         transtree.plot(**fname('Transmission tree'))
         transtree.animate(animate=False)
