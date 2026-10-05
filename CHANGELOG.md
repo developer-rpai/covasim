@@ -39,9 +39,9 @@ This release changes Covasim from a standalone library to one built on the [Star
 - Custom interventions and analyzers can't set the attributes that Starsim reserves (`t`, `pars`, `sim`, `dists`, `results`), and module names must be unique.
 - Sims are saved with their people by default; use `sim.save(keep_people=False)` to remove them.
 - Each random process now has its own random number stream (common random numbers), so `sim.set_seed()` and `sim.run(reset_seed=True)` part-way through a run have no effect; results only depend on `rand_seed`.
-- `sim.summarize()` with no arguments returns the summary dict; use `sim.summarize(full=False)` to print the table.
+- `sim.summarize()` returns the summary rather than printing it; use `print(sim.summary)`.
 - Supplying COVID parameters (e.g. `pop_infected`) together with `diseases=` raises an error.
-- The `numba_parallel` option has no effect.
+- The `numba_parallel` option has been removed, since Covasim no longer has multithreaded Numba functions.
 - New: `cv.v3_dist()` converts a v3 distribution dict to a Starsim distribution; layer parameters can be a single number for all layers (e.g. `beta_layer=0.5`); `cv.data.show_locations(location, output=True)` returns whether the data are available.
 - *Regression information*: Location aliases (e.g. `'UK'`, `'DRC'`, `'Laos'`, `'Hong Kong'`) now load the household size as well as the ages (v3 used the default household size), which changes hybrid results for these locations. `'Cape Verde'` now loads.
 - *Regression information*: Results are not identical to v3 for the same `rand_seed`. To check that a script gives the same answers in v3 and v4, compare the means over several seeds rather than single runs.
