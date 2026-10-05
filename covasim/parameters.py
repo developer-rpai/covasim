@@ -1,6 +1,6 @@
-'''
+"""
 Set the parameters for Covasim.
-'''
+"""
 
 import numpy as np
 import sciris as sc
@@ -13,7 +13,7 @@ __all__ = ['make_pars', 'reset_layer_pars', 'get_prognoses', 'get_variant_choice
 
 
 def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
-    '''
+    """
     Create the parameters for the simulation. Typically, this function is used
     internally rather than called by the user; e.g. typical use would be to do
     sim = cv.Sim() and then inspect sim.pars, rather than calling this function
@@ -22,18 +22,18 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     Args:
         set_prognoses (bool): whether or not to create prognoses (else, added when the population is created)
         prog_by_age   (bool): whether or not to use age-based severity, mortality etc.
+        version       (str):  if supplied, use parameters from this Covasim version (any other arguments take precedence)
         kwargs        (dict): any additional kwargs are interpreted as parameter names
-        version       (str):  if supplied, use parameters from this Covasim version
 
     Returns:
         pars (dict): the parameters of the simulation
-    '''
+    """
     pars = {}
 
     # Population parameters
     pars['pop_size']     = 20e3     # Number of agents, i.e., people susceptible to SARS-CoV-2
     pars['pop_infected'] = 20       # Number of initial infections
-    pars['pop_type']     = 'random' # What type of population data to use -- 'random' (fastest), 'synthpops' (best), 'hybrid' (compromise)
+    pars['pop_type']     = 'random' # What type of population data to use -- 'random' (fastest) or 'hybrid' (household, school, work, and community layers)
     pars['location']     = None     # What location to load data from -- default Seattle
 
     # Simulation parameters
@@ -41,7 +41,7 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     pars['end_day']    = None         # End day of the simulation
     pars['n_days']     = 60           # Number of days to run, if end_day isn't specified
     pars['rand_seed']  = 1            # Random seed, if None, don't reset
-    pars['verbose']    = cvo.verbose  # Whether or not to display information during the run -- options are 0 (silent), 0.1 (some; default), 1 (default), 2 (everything)
+    pars['verbose']    = cvo.verbose  # Whether or not to display information during the run -- options are 0 (silent), 0.1 (some; default), 1 (more), 2 (everything)
 
     # Rescaling parameters
     pars['pop_scale']         = 1    # Factor by which to scale the population -- e.g. pop_scale=10 with pop_size=100e3 means a population of 1 million
@@ -64,17 +64,17 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
 
     # Parameters that control settings and defaults for multi-variant runs
     pars['n_imports']  = 0 # Average daily number of imported cases (actual number is drawn from Poisson distribution)
-    pars['n_variants'] = 1 # The number of variants circulating in the population
+    pars['n_variants'] = 1 # The number of variants circulating in the population; calculated by cv.COVID (see derived_pars below), ignored if supplied
 
     # Parameters used to calculate immunity
     pars['use_waning']   = True # Whether to use dynamically calculated immunity
     pars['nab_init']     = dict(dist='normal', par1=0, par2=2)  # Parameters for the distribution of the initial level of log2(nab) following natural infection, taken from fig1b of https://doi.org/10.1101/2021.03.09.21252641
     pars['nab_decay']    = dict(form='nab_growth_decay', growth_time=21, decay_rate1=np.log(2) / 50, decay_time1=150, decay_rate2=np.log(2) / 250, decay_time2=365)
-    pars['nab_kin']      = None # Constructed during sim initialization using the nab_decay parameters
+    pars['nab_kin']      = None # Calculated by cv.COVID from the nab_decay parameters; ignored if supplied
     pars['nab_boost']    = 1.5 # Multiplicative factor applied to a person's nab levels if they get reinfected. No data on this, assumption.
     pars['nab_eff']      = dict(alpha_inf=1.08, alpha_inf_diff=1.812, beta_inf=0.967, alpha_symp_inf=-0.739, beta_symp_inf=0.038, alpha_sev_symp=-0.014, beta_sev_symp=0.079) # Parameters to map nabs to efficacy
     pars['rel_imm_symp'] = dict(asymp=0.85, mild=1, severe=1.5) # Relative immunity from natural infection varies by symptoms. Assumption.
-    pars['immunity']     = None  # Matrix of immunity and cross-immunity factors, set by init_immunity() in immunity.py
+    pars['immunity']     = None  # Matrix of immunity and cross-immunity factors; calculated by cv.COVID, ignored if supplied
     pars['trans_redux']  = 0.59  # Reduction in transmission for breakthrough infections, https://www.medrxiv.org/content/10.1101/2021.07.13.21260393v
 
     # Variant-specific disease transmission parameters. By default, these are set up for a single variant, but can all be modified for multiple variants
@@ -119,9 +119,9 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     pars['no_hosp_factor'] = 2.0  # Multiplier for how much more likely severely ill people are to become critical if no hospital beds are available
     pars['no_icu_factor']  = 2.0  # Multiplier for how much more likely critically ill people are to die if no ICU beds are available
 
-    # Handle vaccine and variant parameters
-    pars['vaccine_pars'] = {} # Vaccines that are being used; populated during initialization
-    pars['vaccine_map']  = {} #Reverse mapping from number to vaccine key
+    # Handle vaccine and variant parameters; all except variants are calculated by cv.COVID (see derived_pars below), and ignored if supplied
+    pars['vaccine_pars'] = {} # Vaccines that are being used
+    pars['vaccine_map']  = {} # Reverse mapping from number to vaccine key
     pars['variants']     = [] # Additional variants of the virus; populated by the user, see immunity.py
     pars['variant_map']  = {0:'wild'} # Reverse mapping from number to variant key
     pars['variant_pars'] = dict(wild={}) # Populated just below
@@ -129,29 +129,36 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
         if sp in pars.keys():
             pars['variant_pars']['wild'][sp] = pars[sp]
 
-    # Update with any supplied parameter values and generate things that need to be generated
+    # If version is specified, load old parameters
+    if version is not None:
+        if sc.compareversions(version, '<2.1.0'): # Before 2.1.0, the lognormal durations were parameterized differently
+            errormsg = f'Parameters from Covasim versions before 2.1.0 are not supported (requested {version})'
+            raise ValueError(errormsg)
+        verbose = kwargs.get('verbose', pars['verbose'])
+        version_pars = cvm.get_version_pars(version, verbose=verbose)
+        if sc.compareversions(version, '<3.0.0'): # Waning was introduced in 3.0, so is always false before
+            version_pars['use_waning'] = False
+        skip_keys = []
+        if 'pop_type' in kwargs: # The stored layer parameters are for the stored population type, so use the defaults for the requested one instead
+            skip_keys = layer_pars
+        for key in pars.keys(): # Only loop over keys that have been populated
+            if (key in version_pars) and (key not in skip_keys): # Only replace keys that exist in the old version
+                pars[key] = version_pars[key]
+        if version_pars.get('prognoses') is not None: # The version file stores the prognoses as lists; convert them to arrays
+            pars['prognoses'] = {key:np.array(val) for key,val in version_pars['prognoses'].items()}
+
+    # Update with any supplied parameter values (these take precedence over the version's) and generate things that need to be generated
+    pars['prog_by_age'] = prog_by_age
     pars.update(kwargs)
     reset_layer_pars(pars)
     if set_prognoses: # If not set here, gets set when the population is initialized
         pars['prognoses'] = get_prognoses(pars['prog_by_age'], version=version) # Default to age-specific prognoses
 
-    # If version is specified, load old parameters
-    if version is not None:
-        version_pars = cvm.get_version_pars(version, verbose=pars['verbose'])
-        if sc.compareversions(version, '<3.0.0'): # Waning was introduced in 3.0, so is always false before
-            version_pars['use_waning'] = False
-        for key in pars.keys(): # Only loop over keys that have been populated
-            if key in version_pars: # Only replace keys that exist in the old version
-                pars[key] = version_pars[key]
-        if version_pars.get('prognoses') is not None: # As in v3, convert them from lists to arrays
-            pars['prognoses'] = get_prognoses(pars['prog_by_age'], version=version)
-
-        # Handle code change migration
-        if sc.compareversions(version, '<2.1.0'):
-            errormsg = f'Parameters from Covasim versions before 2.1.0 are not supported (requested {version})'
-            raise ValueError(errormsg)
-
     return pars
+
+
+# Parameters that are calculated from the other parameters by cv.COVID, and so are ignored if supplied
+derived_pars = ['n_variants', 'nab_kin', 'immunity', 'vaccine_pars', 'vaccine_map', 'variant_map', 'variant_pars']
 
 
 # Define which parameters need to be specified as a dictionary by layer -- define here so it's available at the module level for sim.py
@@ -159,18 +166,22 @@ layer_pars = ['beta_layer', 'contacts', 'dynam_layer', 'iso_factor', 'quar_facto
 
 
 def reset_layer_pars(pars, layer_keys=None, force=False):
-    '''
+    """
     Helper function to set layer-specific parameters. If layer keys are not provided,
     then set them based on the population type. This function is not usually called
     directly by the user, although it can sometimes be used to fix layer key mismatches
     (i.e. if the contact layers in the population do not match the parameters). More
     commonly, however, mismatches need to be fixed explicitly.
 
+    Each layer parameter (``beta_layer``, ``contacts``, ``dynam_layer``, ``iso_factor``,
+    ``quar_factor``) can be a dict by layer, or a single number for all layers
+    (e.g. ``beta_layer=0.5``).
+
     Args:
         pars (dict): the parameters dictionary
         layer_keys (list): the layer keys of the population, if available
         force (bool): reset the parameters even if they already exist
-    '''
+    """
 
     # Specify defaults for random -- layer 'a' for 'all'
     layer_defaults = {}
@@ -191,17 +202,11 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
         quar_factor = dict(h=0.6, s=0.2, w=0.2, c=0.2),  # Multiply beta by this factor for people in quarantine
     )
 
-    # Specify defaults for SynthPops -- same as hybrid except for LTCF layer (l)
-    l_pars = dict(beta_layer=1.5, contacts=10, dynam_layer=0, iso_factor=0.2, quar_factor=0.3)
-    layer_defaults['synthpops'] = sc.dcp(layer_defaults['hybrid'])
-    for key,val in l_pars.items():
-        layer_defaults['synthpops'][key]['l'] = val
-
     # Choose the parameter defaults based on the population type, and get the layer keys
     try:
         defaults = layer_defaults[pars['pop_type']]
     except Exception as E:
-        errormsg = f'Cannot load defaults for population type "{pars["pop_type"]}": must be hybrid, random, or synthpops'
+        errormsg = f'Cannot load defaults for population type "{pars["pop_type"]}": must be random or hybrid'
         raise ValueError(errormsg) from E
     default_layer_keys = list(defaults['beta_layer'].keys()) # All layers should be the same, but use beta_layer for convenience
 
@@ -223,7 +228,7 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
         if layer_keys:
             par_layer_keys = layer_keys # Use supplied layer keys
         else:
-            par_layer_keys = list(sc.odict.fromkeys(default_layer_keys + list(par_dict.keys())))  # If not supplied, use the defaults, plus any extra from the par_dict; adapted from https://www.askpython.com/python/remove-duplicate-elements-from-list-python
+            par_layer_keys = list(dict.fromkeys(default_layer_keys + list(par_dict.keys())))  # If not supplied, use the defaults, plus any extra from the par_dict (without duplicates)
 
         # Construct this parameter, layer by layer
         for lkey in par_layer_keys: # Loop over layers
@@ -234,17 +239,18 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
 
 
 def get_prognoses(by_age=True, version=None):
-    '''
+    """
     Return the default parameter values for prognoses
 
     The prognosis probabilities are conditional given the previous disease state.
 
     Args:
-        by_age (bool): whether to use age-specific values (default true)
+        by_age  (bool): whether to use age-specific values (default true)
+        version (str):  if supplied, use the age-specific prognoses from this Covasim version (ignored if by_age is false)
 
     Returns:
         prog_pars (dict): the dictionary of prognosis probabilities
-    '''
+    """
 
     if not by_age: # All rough estimates -- almost always, prognoses by age (below) are used instead
         prognoses = dict(
@@ -273,14 +279,13 @@ def get_prognoses(by_age=True, version=None):
     # If version is specified, load old parameters
     if by_age and version is not None:
         version_prognoses = cvm.get_version_pars(version, verbose=False)['prognoses']
-        for key in version_prognoses.keys(): # Only loop over keys that have been populated
-            if key in version_prognoses: # Only replace keys that exist in the old version
-                prognoses[key] = np.array(version_prognoses[key])
+        for key,val in version_prognoses.items(): # Replace the keys that exist in the old version
+            prognoses[key] = np.array(val)
 
     # Check that lengths match
     expected_len = len(prognoses['age_cutoffs'])
     for key,val in prognoses.items():
-        this_len = len(prognoses[key])
+        this_len = len(val)
         if this_len != expected_len: # pragma: no cover
             errormsg = f'Lengths mismatch in prognoses: {expected_len} age bins specified, but key "{key}" has {this_len} entries'
             raise ValueError(errormsg)
@@ -289,10 +294,10 @@ def get_prognoses(by_age=True, version=None):
 
 
 def relative_prognoses(prognoses):
-    '''
+    """
     Convenience function to revert absolute prognoses into relative (conditional)
     ones. Internally, Covasim uses relative prognoses.
-    '''
+    """
     out = sc.dcp(prognoses)
     out['death_probs']  /= out['crit_probs']   # Conditional probability of dying, given critical symptoms
     out['crit_probs']   /= out['severe_probs'] # Conditional probability of symptoms becoming critical, given severe
@@ -301,7 +306,7 @@ def relative_prognoses(prognoses):
 
 
 def absolute_prognoses(prognoses):
-    '''
+    """
     Convenience function to revert relative (conditional) prognoses into absolute
     ones. Used to convert internally used relative prognoses into more readable
     absolute ones.
@@ -310,7 +315,7 @@ def absolute_prognoses(prognoses):
 
         sim = cv.Sim()
         abs_progs = cv.parameters.absolute_prognoses(sim['prognoses'])
-    '''
+    """
     out = sc.dcp(prognoses)
     out['severe_probs'] *= out['symp_probs']   # Absolute probability of severe symptoms
     out['crit_probs']   *= out['severe_probs'] # Absolute probability of critical symptoms
@@ -321,9 +326,9 @@ def absolute_prognoses(prognoses):
 #%% Variant, vaccine, and immunity parameters and functions
 
 def get_variant_choices():
-    '''
+    """
     Define valid pre-defined variant names
-    '''
+    """
     # List of choices currently available: new ones can be added to the list along with their aliases
     choices = {
         'wild':  ['wild', 'default', 'pre-existing', 'original'],
@@ -337,9 +342,9 @@ def get_variant_choices():
 
 
 def get_vaccine_choices():
-    '''
+    """
     Define valid pre-defined vaccine names
-    '''
+    """
     # List of choices currently available: new ones can be added to the list along with their aliases
     choices = {
         'default': ['default', None],
@@ -356,7 +361,7 @@ def get_vaccine_choices():
 
 
 def _get_from_pars(pars, default=False, key=None, defaultkey='default'):
-    ''' Helper function to get the right output from vaccine and variant functions '''
+    """ Helper function to get the right output from vaccine and variant functions """
 
     # If a string was provided, interpret it as a key and swap
     if isinstance(default, str):
@@ -376,9 +381,9 @@ def _get_from_pars(pars, default=False, key=None, defaultkey='default'):
 
 
 def get_variant_pars(default=False, variant=None):
-    '''
+    """
     Define the default parameters for the different variants
-    '''
+    """
     pars = dict(
 
         wild = dict(
@@ -426,9 +431,9 @@ def get_variant_pars(default=False, variant=None):
 
 
 def get_cross_immunity(default=False, variant=None):
-    '''
+    """
     Get the cross immunity between each variant in a sim
-    '''
+    """
     pars = dict(
 
         wild = dict(
@@ -476,9 +481,9 @@ def get_cross_immunity(default=False, variant=None):
 
 
 def get_vaccine_variant_pars(default=False, vaccine=None):
-    '''
+    """
     Define the effectiveness of each vaccine against each variant
-    '''
+    """
     pars = dict(
 
         default = dict(
@@ -550,9 +555,9 @@ def get_vaccine_variant_pars(default=False, vaccine=None):
 
 
 def get_vaccine_dose_pars(default=False, vaccine=None):
-    '''
+    """
     Define the parameters for each vaccine
-    '''
+    """
 
     pars = dict(
 
