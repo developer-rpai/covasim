@@ -1,48 +1,32 @@
-'''
+"""
 Check that correct versions of each library are installed, and print warnings
 or errors if not.
-'''
+"""
 
 #%% Housekeeping
 
-__all__ = ['min_versions', 'check_sciris', 'check_synthpops']
+import importlib
+import sciris as sc # Its version is checked below
 
-min_versions = {'sciris':'2.0.1'} # Should match requirements.txt
+min_versions = {'sciris':'3.4.0', 'starsim':'3.7.1'} # Should match pyproject.toml
 
 
 #%% Check dependencies
 
-def check_sciris():
-    ''' Check that Sciris is available and the right version '''
-    try:
-        import sciris as sc
-    except ModuleNotFoundError: # pragma: no cover
-        errormsg = 'Sciris is a required dependency but is not found; please install via "pip install sciris"'
-        raise ModuleNotFoundError(errormsg)
-    ver = sc.__version__
-    minver = min_versions['sciris']
-    if sc.compareversions(ver, minver) < 0:
-        errormsg = f'You have Sciris {ver} but {minver} is required; please upgrade via "pip install --upgrade sciris"'
-        raise ImportError(errormsg)
+def check_requirements():
+    """ Check that each required library is available and the right version """
+    for name,minver in min_versions.items():
+        try:
+            lib = importlib.import_module(name)
+        except ModuleNotFoundError as E: # pragma: no cover
+            errormsg = f'{name} is a required dependency but is not found; please install via "pip install {name}"'
+            raise ModuleNotFoundError(errormsg) from E
+        ver = lib.__version__
+        if sc.compareversions(ver, minver) < 0: # pragma: no cover
+            errormsg = f'You have {name} {ver} but {minver} is required; please upgrade via "pip install --upgrade {name}"'
+            raise ImportError(errormsg)
     return
 
-
-def check_synthpops(verbose=False, die=False):
-    ''' Check whether synthpops is available '''
-
-    # Check synthpops -- optional dependency
-    try:
-        import synthpops
-        return synthpops
-    except ModuleNotFoundError as E: # pragma: no cover
-        import_error = f'Synthpops (for detailed demographic data) is not available ({str(E)})\n'
-        if die:
-            raise ModuleNotFoundError(import_error)
-        elif verbose:
-            print(import_error)
-        return False
-
-    return
 
 # Perform the version checks on import
-check_sciris()
+check_requirements()
